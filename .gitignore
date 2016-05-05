@@ -1,4 +1,4 @@
-.stack_work*
-.stack_work/*
-.stack_work
+.stack-work*
+.stack-work/*
+.stack-work
 _cache
