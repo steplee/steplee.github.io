@@ -1,0 +1,267 @@
+
+$blue1: #45abff;
+$blue2: #193b8f;
+$green1: #89e618;
+$orange1: #e67418;
+$slate: #ccc;
+
+$bodyc: #aaa;
+$bg-color: #080808;
+$off-bg: #1a1a1a;
+$off-bg2: #3a3a3a;
+
+$body-font: 'Signika', sans-serif;
+$hdr-font: 'Rokkitt', serif;
+$nav-font: 'Montserrat', sans-serif;
+
+$width: 70%;
+$nav-height: 65px;
+
+body {
+  color: $bodyc;
+  background-color :$bg-color;
+  font-family: $body-font;
+}
+
+.inner {
+  @extend body;
+
+  font-size: 20px;
+  margin: 0px auto 0px auto;
+  padding: 0px;
+  width: $width;
+}
+
+// ------------------------ H T M L --------------------
+
+h1 {
+  font-size: 49px;
+  color: $bodyc + #333;
+  text-align: center;
+  font-family: $nav-font;
+  font-weight: 400;
+  margin: 5px;
+}
+
+h2 {
+  font-size: 45px;
+  color: $bodyc + #222;
+  text-align: center;
+}
+
+a:link {
+  text-decoration: none;
+  color: $green1;
+}
+a:visited {
+  text-decoration: none;
+  color: $orange1;
+}
+
+
+// ----------------------- P O S T -------------------
+
+div.info {
+  color: $slate;
+  color: $slate - #333;
+  font-size: 14px;
+  text-align: center;
+  font-style: italic;
+}
+
+.post-container {
+  h2 {
+    font-size: 24px;
+    color: $bodyc + #222;
+  }
+
+}
+
+// ----------------------- A R C H I V E S + A B O U T -------------------
+
+
+// ----------------------- H E A D E R -------------------
+
+div#header {
+  //margin-bottom: 30px;
+  display: inline-block;
+  width: 100%;
+  padding: 12px 0px 12px 0px;
+  font-family: $hdr-font;
+}
+
+div#logo {
+  float:left;
+
+  a {
+    color: $slate + #333;
+    float: left;
+    font-size: 58px;
+    font-family: $nav-font;
+    text-decoration: none;
+    font-weight: 400;
+
+    #second {
+      color: $green1;
+      font-weight: 700;
+    }
+  }
+
+}
+
+nav {
+  text-align: right;
+  font-family: $nav-font;
+  line-height: $nav-height;
+  letter-spacing: 7px;
+  font-size: 14px;
+
+  a {
+    color: $slate;
+    font-family: $nav-font;
+    font-weight: bold;
+    margin-left: 12px;
+    margin-right: 12px;
+    margin-bottom: 4px;
+    padding-left: 5px;
+    padding-right: 5px;
+    text-decoration: none;
+    text-transform: uppercase;
+
+    vertical-align: text-bottom;
+
+    //border-bottom: 1px solid $green1;
+    //background: $off-bg;
+  }
+  a:visited { @extend a }
+
+  a:hover {
+    background-color: $bg-color + #222;
+  }
+}
+
+
+// ----------------------- F O O T E R -------------------
+
+div#footer {
+  background-color: #0d0d0d;
+  width: 100%;
+  display: inline-block;
+  border-bottom: solid 3px #1a1a1a;
+  border-top: solid 3px #111;
+
+  #right {
+  color: #555;
+  font-size: 12px;
+    border-bottom: none;
+    padding: 5px;
+    text-align: right;
+    float:right;
+  }
+
+
+}
+
+// ----------------------- M I S C -------------------
+
+hr.soft {
+  border: 0;
+  height: 1px;
+
+  background-image: -webkit-linear-gradient(left, rgba(200,200,200,0), rgba(200,200,200,0.75), rgba(200,200,200,0)); 
+  background-image:    -moz-linear-gradient(left, rgba(200,200,200,0), rgba(200,200,200,0.75), rgba(200,200,200,0)); 
+  background-image:     -ms-linear-gradient(left, rgba(200,200,200,0), rgba(200,200,200,0.75), rgba(200,200,200,0)); 
+  background-image:      -o-linear-gradient(left, rgba(200,200,200,0), rgba(200,200,200,0.75), rgba(200,200,200,0)); 
+}
+
+hr.small {
+  @extend hr.soft;
+  width: 50%;
+}
+
+hr.very-small {
+  @extend hr.soft;
+  width: 20%;
+
+  background-image: -webkit-linear-gradient(left, rgba(200,200,200,0), rgba(200,200,200,0.35), rgba(200,200,200,0)); 
+  background-image:    -moz-linear-gradient(left, rgba(200,200,200,0), rgba(200,200,200,0.35), rgba(200,200,200,0)); 
+  background-image:     -ms-linear-gradient(left, rgba(200,200,200,0), rgba(200,200,200,0.35), rgba(200,200,200,0)); 
+  background-image:      -o-linear-gradient(left, rgba(200,200,200,0), rgba(200,200,200,0.35), rgba(200,200,200,0)); 
+}
+
+
+// ----------------------- A B O U T  P A G E -------------------
+
+
+.top-div-seperator {
+  display:table;
+  width: 80%;
+  padding: 15px;
+  margin: auto auto;
+}
+
+.top-div {
+  width: 80%;
+  height: 100%;
+  overflow: visible;
+  margin: auto auto; // centers it horiz
+
+
+  #left {
+  }
+
+  img {
+    border-radius: 305px;
+    float: left;
+    margin: 15px;
+    max-width: 245px;
+  }
+
+  div#right {
+    padding: 20px 0px 0px 30px;
+    float: none;
+    height: 100%;
+    vertical-align: bottom;
+    display: table-row;
+
+
+    #p-holder {
+      padding: 20px;
+      width: 80%;
+      max-width:800px;
+
+      h2 {
+        padding: 0px;
+      }
+
+      p {
+        margin: 5px;
+        float: none;
+        vertical-align: center;
+        text-align:justify;
+        padding: 10px;
+      }
+    }
+  }
+
+}
+.hdr {
+  text-align: center;
+  vertical-align: bottom;
+  font-size: 45px;
+  padding: 0;
+  margin: 0px;
+}
+
+.index-recent {
+  vertical-align: center;
+  float: none;
+  margin: auto auto;
+  ul {
+    list-style-type: none;
+  }
+
+  p,h3 {
+    text-align: center;
+  }
+}
