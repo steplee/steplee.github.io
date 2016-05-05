@@ -17,15 +17,20 @@ $nav-font: 'Montserrat', sans-serif;
 $width: 70%;
 $nav-height: 65px;
 
+$img-max: 245px;
+
 body {
   color: $bodyc;
   background-color :$bg-color;
   font-family: $body-font;
+  margin:0px;
 }
 
 .inner {
   @extend body;
 
+  background-color:transparent;
+  background:none;
   font-size: 20px;
   margin: 0px auto 0px auto;
   padding: 0px;
@@ -167,11 +172,16 @@ div#footer {
 hr.soft {
   border: 0;
   height: 1px;
+  margin: 0px auto;
 
   background-image: -webkit-linear-gradient(left, rgba(200,200,200,0), rgba(200,200,200,0.75), rgba(200,200,200,0)); 
   background-image:    -moz-linear-gradient(left, rgba(200,200,200,0), rgba(200,200,200,0.75), rgba(200,200,200,0)); 
   background-image:     -ms-linear-gradient(left, rgba(200,200,200,0), rgba(200,200,200,0.75), rgba(200,200,200,0)); 
   background-image:      -o-linear-gradient(left, rgba(200,200,200,0), rgba(200,200,200,0.75), rgba(200,200,200,0)); 
+}
+hr.soft-thick {
+  @extend hr.soft;
+  height: 5px;
 }
 
 hr.small {
@@ -193,28 +203,41 @@ hr.very-small {
 // ----------------------- A B O U T  P A G E -------------------
 
 
+#index-outer {
+  background-image: url("../images/hex5.png");
+  background-size: 100%;
+  background-position-y: -60px;
+
+  height:100%;
+  overflow:hidden;
+}
+
 .top-div-seperator {
   display:table;
   width: 80%;
+  height:500px;
   padding: 15px;
   margin: auto auto;
 }
 
 .top-div {
   width: 80%;
-  height: 100%;
   overflow: visible;
   margin: auto auto; // centers it horiz
+  position:absolute;
+  left:15%;
+  top:370px;
 
 
   #left {
+    float: left;
   }
 
   img {
     border-radius: 305px;
     float: left;
     margin: 15px;
-    max-width: 245px;
+    max-width: $img-max;
   }
 
   div#right {
@@ -228,13 +251,18 @@ hr.very-small {
     #p-holder {
       padding: 20px;
       width: 80%;
-      max-width:800px;
+      max-width:550px;
+      display: block;
 
       h2 {
-        padding: 0px;
+        padding-bottom: 10px;
+        width:100%;
+        text-align:left;
+        float:left;
       }
 
       p {
+        color: $slate;
         margin: 5px;
         float: none;
         vertical-align: center;
