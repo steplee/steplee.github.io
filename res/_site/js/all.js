@@ -4,5 +4,5 @@ $(window).scroll(function(e){
 
 function parallax(){
     var scrolled = $(window).scrollTop();
-      $('.background').css('top',-(scrolled*0.15)+'px'); // here you scroll downward
+      $('#index-outer').css('background-position-y',-(465+scrolled*1.25)+'px'); // here you scroll downward
 }
