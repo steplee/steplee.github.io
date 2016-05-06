@@ -2,38 +2,40 @@
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
 "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
-    <head>
-        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
-        <title>steplee - $title$</title>
-        <link rel="stylesheet" type="text/css" href="/css/default.css" />
-        <link href='https://fonts.googleapis.com/css?family=Signika:400,700,600,300|Istok+Web|Rubik:700,500,300|Montserrat' rel='stylesheet' type='text/css'>
-    </head>
-    <body>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>steplee - $title$</title>
+<link rel="stylesheet" type="text/css" href="/css/default.css" />
+<link href='https://fonts.googleapis.com/css?family=Signika:400,700,600,300|Istok+Web|Rubik:700,500,300|Montserrat' rel='stylesheet' type='text/css'>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.2/jquery.min.js"></script>
+<script src="/js/all.js"></script>
+</head>
+<body id="index-body">
+<div id="index-outer">
+  <div id="inner">
     $partial("templates/header.html")$
-    <!--
-        <div id="header">
-            <div id="logo">
-              <a href="/" >step<span id="second">lee</span></a>
-            </div>
-            <div id="navigation">
-                <a href="/">Home</a>
-                <a href="/about.html">About</a>
-                <a href="/contact.html">Contact</a>
-                <a href="/archive.html">Archive</a>
-            </div>
-        </div>
-        -->
 
-        <div class="inner">
-
+    <div class="top-div-seperator" >
+      <div class="top-div">
         $if(title)$
-            <h1>$title$</h1>
+        <h1>$title$</h1>
         $endif$
-
-            $body$
+        <div class="info">
+          $if(date)$
+          Posted on $date$
+          $endif$
         </div>
-      
+      </div>
+    </div>
+    <hr class="soft">
+  </div>
+</div>
 
-        $partial("templates/footer.html")$
-    </body>
+<div class="inner">
+  $body$
+</div>
+
+
+$partial("templates/footer.html")$
+</body>
 </html>

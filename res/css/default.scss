@@ -24,6 +24,7 @@ body {
   background-color :$bg-color;
   font-family: $body-font;
   margin:0px;
+  font-size: 25px;
 }
 
 .inner {
@@ -31,7 +32,7 @@ body {
 
   background-color:transparent;
   background:none;
-  font-size: 20px;
+  font-size: 25px;
   margin: 0px auto 0px auto;
   padding: 0px;
   width: $width;
@@ -40,17 +41,18 @@ body {
 // ------------------------ H T M L --------------------
 
 h1 {
-  font-size: 49px;
-  color: $bodyc + #333;
-  text-align: center;
+  font-size: 70px;
+  color: $bodyc + #555;
+  text-align: left;
   font-family: $nav-font;
   font-weight: 400;
+  max-width:75%;
   margin: 5px;
 }
 
 h2 {
   font-size: 45px;
-  color: $bodyc + #222;
+  color: $bodyc + #444;
   text-align: center;
 }
 
@@ -68,16 +70,18 @@ a:visited {
 
 div.info {
   color: $slate;
-  color: $slate - #333;
   font-size: 14px;
   text-align: center;
   font-style: italic;
+  float:left;
+  margin-left: 50px;
 }
 
 .post-container {
+  padding-top: 30px;
   h2 {
     font-size: 24px;
-    color: $bodyc + #222;
+    color: $bodyc + #444;
   }
 
 }
@@ -217,9 +221,10 @@ hr.very-small {
 .top-div-seperator {
   display:table;
   width: 80%;
-  height:500px;
+  min-height:540px;
   padding: 15px;
   margin: auto auto;
+  font-size: 20px;
 }
 
 
@@ -227,6 +232,8 @@ hr.very-small {
   position:absolute;
   left:15%;
   top:370px;
+  max-width:80%;
+  text-align:left;
 
 
   #left {

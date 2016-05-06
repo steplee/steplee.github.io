@@ -2,7 +2,19 @@
 {-# LANGUAGE OverloadedStrings #-}
 import           Data.Monoid (mappend)
 import           Hakyll
+import Hakyll.Web.Feed
 import Control.Monad
+
+--------------------------------------------------------------------------------
+
+myFeedConfiguration = FeedConfiguration
+    { feedTitle       = "steplee - Blog"
+    , feedDescription = "the greatest tech blog ever"
+    , feedAuthorName  = "Stephen Lee"
+    , feedAuthorEmail = "stephenl7797@gmail.com"
+    , feedRoot        = "http://steplee.github.io"
+    }
+
 
 --------------------------------------------------------------------------------
 
@@ -75,10 +87,21 @@ hakyll_main =  hakyll $ do
 
             getResourceBody
                 >>= applyAsTemplate indexCtx
-                >>= loadAndApplyTemplate "templates/other-default.html" indexCtx
+                >>= loadAndApplyTemplate "templates/index-default.html" indexCtx
                 >>= relativizeUrls
 
     match "templates/*" $ compile templateBodyCompiler
+
+
+------------------------- R S S -------------------------------
+
+    create ["atom.xml"] $ do
+        route idRoute
+        compile $ do
+            let feedCtx = postCtx `mappend` bodyField "description"
+            posts <- fmap (take 10) . recentFirst =<<
+                loadAllSnapshots "posts/*" "content"
+            renderAtom myFeedConfiguration feedCtx posts
 
 
 --------------------------------------------------------------------------------
