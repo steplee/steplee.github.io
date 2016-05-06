@@ -95,6 +95,7 @@ hakyll_main =  hakyll $ do
 
 ------------------------- R S S -------------------------------
 
+{-
     create ["atom.xml"] $ do
         route idRoute
         compile $ do
@@ -102,6 +103,7 @@ hakyll_main =  hakyll $ do
             posts <- fmap (take 10) . recentFirst =<<
                 loadAllSnapshots "posts/*" "content"
             renderAtom myFeedConfiguration feedCtx posts
+-}
 
 
 --------------------------------------------------------------------------------
