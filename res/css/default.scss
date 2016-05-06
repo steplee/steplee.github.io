@@ -222,10 +222,8 @@ hr.very-small {
   margin: auto auto;
 }
 
+
 .top-div {
-  width: 80%;
-  overflow: visible;
-  margin: auto auto; // centers it horiz
   position:absolute;
   left:15%;
   top:370px;
@@ -243,18 +241,24 @@ hr.very-small {
   }
 
   div#right {
-    padding: 20px 0px 0px 30px;
-    float: none;
-    height: 100%;
-    vertical-align: bottom;
     display: table-row;
 
+    #icons {
+      display:block;
+    float:left;
+    max-width:55px;
+      .ico {
+        width: 35px;
+        margin: 5px;
+      }
+    }
 
     #p-holder {
       padding: 20px;
       width: 80%;
       max-width:550px;
       display: block;
+      float:left;
 
       h2 {
         padding-bottom: 10px;
@@ -271,6 +275,7 @@ hr.very-small {
         text-align:justify;
         padding: 10px;
       }
+
     }
   }
 
