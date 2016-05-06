@@ -5,5 +5,5 @@ all:
 	cp _site/* ../ -r \
 
 clean:
-	rm -rf index.html posts about.html contact.markdown _site _cache archive.html images css js
+	rm -rf index.html posts about.html contact.markdown _site _cache archive.html images css js res/_site res/_cache
 

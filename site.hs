@@ -2,11 +2,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 import           Data.Monoid (mappend)
 import           Hakyll
-import Hakyll.Web.Feed
+--import Hakyll.Web.Feed
 import Control.Monad
 
 --------------------------------------------------------------------------------
 
+{-
 myFeedConfiguration = FeedConfiguration
     { feedTitle       = "steplee - Blog"
     , feedDescription = "the greatest tech blog ever"
@@ -14,24 +15,20 @@ myFeedConfiguration = FeedConfiguration
     , feedAuthorEmail = "stephenl7797@gmail.com"
     , feedRoot        = "http://steplee.github.io"
     }
+-}
 
 
 --------------------------------------------------------------------------------
 
-main :: IO ()
-main =  do
-  putStrLn "start"
-  sequence_ [hakyll_main, putStrLn "done"]
-  return ()
-
 --------------------------------------------------------------------------------
-hakyll_main =  hakyll $ do
+main =  hakyll $ do
     match "images/*" $ do
         route   idRoute
         compile copyFileCompiler
     match "images/icons/*" $ do
         route   idRoute
         compile copyFileCompiler
+
 
     match "js/*" $ do
         route   idRoute
@@ -75,20 +72,20 @@ hakyll_main =  hakyll $ do
                 >>= loadAndApplyTemplate "templates/default.html" archiveCtx
                 >>= relativizeUrls
 
-
-    match "index.html" $ do
-        route idRoute
+    create ["index.html"] $ do
+        route $ setExtension "html"
         compile $ do
             posts <- recentFirst =<< loadAll "posts/*"
             let indexCtx =
                     listField "posts" postCtx (return posts) `mappend`
-                    constField "title" ""                `mappend`
+                    constField "title" "Archives"            `mappend`
                     defaultContext
 
-            getResourceBody
+            makeItem ""
                 >>= applyAsTemplate indexCtx
                 >>= loadAndApplyTemplate "templates/index-default.html" indexCtx
                 >>= relativizeUrls
+
 
     match "templates/*" $ compile templateBodyCompiler
 
