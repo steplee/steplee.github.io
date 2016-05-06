@@ -1,12 +1,12 @@
 
 $blue1: #45abff;
 $blue2: #193b8f;
-$green1: #89e618;
-$orange1: #e67418;
-$slate: #ccc;
+$green1: #99eb47;
+$orange1: #f5993d;
+$slate: #ddd;
 
 $bodyc: #aaa;
-$bg-color: #080808;
+$bg-color: #050505;
 $off-bg: #1a1a1a;
 $off-bg2: #3a3a3a;
 
@@ -140,16 +140,17 @@ nav {
   }
   a:visited { @extend a }
 
-  a:hover {
-    background-color: $bg-color + #222;
-  }
 }
+
+  a:hover {
+    color: $blue1
+  }
 
 
 // ----------------------- F O O T E R -------------------
 
 div#footer {
-  background-color: #0d0d0d;
+  background-color: #090909;
   width: 100%;
   display: inline-block;
   border-bottom: solid 3px #1a1a1a;
@@ -204,7 +205,7 @@ hr.very-small {
 
 
 #index-outer {
-  background-image: url("../images/hex6.jpg");
+  background-image: url("../images/hex7.jpg");
   background-size: 100% auto;
   background-position-y: -465px;
   background-repeat: repeat-y;
