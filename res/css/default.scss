@@ -1,6 +1,6 @@
 
-$blue1: #45abff;
-$blue2: #193b8f;
+$blue1: #a7cdef;
+$blue2: #397cb5;
 $green1: #99eb47;
 $orange1: #f5993d;
 $slate: #ddd;
@@ -62,7 +62,7 @@ a:link {
 }
 a:visited {
   text-decoration: none;
-  color: $orange1;
+  color: $blue1;
 }
 
 
@@ -147,7 +147,7 @@ nav {
 }
 
   a:hover {
-    color: $blue1
+    color: $blue2
   }
 
 
@@ -295,15 +295,38 @@ hr.very-small {
   margin: 0px;
 }
 
+  #more {
+    padding: 10px;
+    text-align: center;
+  }
+
+  #recent {
+    text-align: left;
+    margin: 40px 20px 20px 20%;
+    left: 20%;
+    padding: 0px;
+  }
+
+
 .index-recent {
   vertical-align: center;
   float: none;
   margin: auto auto;
+  width: 70%;
+  min-width: 500px;
   ul {
     list-style-type: none;
   }
 
-  p,h3 {
-    text-align: center;
+  h3 {
+    text-align: left;
+    margin: 0px 5px 0px 5px;
+    padding: 0px;
+  }
+  p {
+    font-size: 13px;
+    text-align:left;
+    margin: 0px 5px 20px 35px;
+    padding: 0px;
   }
 }
