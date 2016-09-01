@@ -13,6 +13,8 @@
 \def\ees{\end{equation*}}
 \def\ee{\end{equation}}
 
+\newtheorem{defn}{Definition}[section]
+
 % Table of contents granularity
 \setcounter{tocdepth}{2}
 
@@ -63,5 +65,35 @@ There will be a project, based on a `ns3`, a network simulator.
 
 \end{multicols}
 
+\section{Lecture 2}
+\paragraph{Explanation of worksheet from first class}
+\begin{defn}[CSMA/CA]
+  Carrier Sense Multiple Access / Collision Avoidance. ``Listen before talk ``
+\end{defn}
+Used by Wifi.
+\begin{defn}[CSMA/CD]
+  Carrier Sense Multiple Access / Collision Detection. Looks for corrupted data and resends
+\end{defn}
+\noindent Used by Ethernet (MAC). Combined with back-off
+
+
+When designing a protocol, ensure the probability of collision asymptotically decays w.r.t. `rounds ` .
+For example, IP does this with exponential back-off
+
+\paragraph{Types of delays}
+\begin{enumerate}
+  \setlength\itemsep{0em}
+  \item Medium Access Delay
+    \subitem (spin-waiting for clear channel)
+  \item Transmission Delay
+    \subitem Putting bits on the wire (bit rate)
+  \item Queuing Delay
+    \subitem Waiting in routers' buffers (congestion)
+  \item Propagation Delay
+    \subitem PHY signal speed
+\end{enumerate}
+
+
+\section{Lecture 3}
 
 \end{document}
