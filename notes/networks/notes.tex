@@ -1,0 +1,67 @@
+\documentclass{article}
+
+\author{Stephen Lee}
+\title{CMSC498: Wireless Networks}
+
+\usepackage{amsmath}
+\usepackage{multicol}
+\usepackage[a4paper]{geometry}
+
+
+\def\be{\begin{equation}}
+\def\bes{\begin{equation*}}
+\def\ees{\end{equation*}}
+\def\ee{\end{equation}}
+
+% Table of contents granularity
+\setcounter{tocdepth}{2}
+
+\linespread{1}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+
+\section{Lecture 1: Introduction}
+Office hours will be after class on Tuesdays [Subject to change]. \\
+There will be a project, based on a `ns3`, a network simulator.
+
+\begin{multicols}{2}
+\paragraph{OSI}
+\begin{enumerate}
+  \setlength\itemsep{0em}
+  \item Application
+  \item TCP
+  \item IP
+  \item Link Layer
+    \begin{enumerate}
+      \item [Other]
+      \item MAC
+    \end{enumerate}
+  \item Physical
+\end{enumerate}
+
+\columnbreak
+
+\paragraph{Class Outline}
+\begin{itemize}
+  \setlength\itemsep{0em}
+  \item Basics of Wireless (PHY)
+  \item LANs $\epsilon$ MACs
+  \item Mobile IP
+  \item Adhoc Networks
+  \item Mobile TCP
+  \item Cellular Networks
+  \item Advanced Topics
+    \begin{itemize}
+      \item Quality of Service
+      \item Shared Spectrum Technologies
+      \item Dynamic Spectrum Access
+    \end{itemize}
+\end{itemize}
+
+\end{multicols}
+
+
+\end{document}
