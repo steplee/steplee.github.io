@@ -4,14 +4,15 @@ $blue2: #397cb5;
 $green1: #99eb47;
 $orange1: #f5993d;
 $slate: #ddd;
+$slate2: #ccc;
 
 $bodyc: #aaa;
 $bg-color: #050505;
 $off-bg: #1a1a1a;
 $off-bg2: #3a3a3a;
 
-$body-font: 'Signika', sans-serif;
-$hdr-font: 'Rokkitt', serif;
+$body-font: 'Roboto', sans-serif;
+$hdr-font: 'Roboto', serif;
 $nav-font: 'Montserrat', sans-serif;
 
 $width: 70%;
@@ -24,7 +25,7 @@ body {
   background-color :$bg-color;
   font-family: $body-font;
   margin:0px;
-  font-size: 25px;
+  font-size: 22px;
 }
 
 .inner {
@@ -32,7 +33,7 @@ body {
 
   background-color:transparent;
   background:none;
-  font-size: 25px;
+  font-size: 22px;
   margin: 0px auto 0px auto;
   padding: 0px;
   width: $width;
@@ -209,13 +210,14 @@ hr.very-small {
 
 
 #index-outer {
-  background-image: url("../images/hex7.jpg");
+  background-image: url("../images/download.jpg");
+  //background-image: url("../images/hex7.jpg");
   background-size: 100% auto;
-  background-position-y: -465px;
+  //background-position-y: -465px;
   background-repeat: repeat-y;
 
   height:100%;
-  overflow:hidden;
+  //overflow:hidden;
 }
 
 .top-div-seperator {
@@ -226,7 +228,6 @@ hr.very-small {
   margin: auto auto;
   font-size: 20px;
 }
-
 
 .top-div {
   position:absolute;
@@ -242,8 +243,7 @@ hr.very-small {
 
   img {
     border-radius: 305px;
-    float: left;
-    margin: 15px;
+    margin: 20px;
     max-width: $img-max;
   }
 
@@ -261,7 +261,7 @@ hr.very-small {
     }
 
     #p-holder {
-      padding: 20px;
+      padding: 10px;
       width: 80%;
       max-width:550px;
       display: block;
@@ -276,7 +276,6 @@ hr.very-small {
 
       p {
         color: $slate;
-        margin: 5px;
         float: none;
         vertical-align: center;
         text-align:justify;
@@ -287,6 +286,14 @@ hr.very-small {
   }
 
 }
+
+#top-div-about {
+  @extend .top-div;
+
+  background-color:rgba(0,0,0,.5);
+  border-radius: 25px;
+}
+
 .hdr {
   text-align: center;
   vertical-align: bottom;
