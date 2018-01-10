@@ -1,0 +1,2 @@
+webpackJsonp([0x81b8806e4260],{304:function(t,a){t.exports={data:{allMarkdownRemark:{edges:[{node:{excerpt:"This is my first post!",id:"src/pages/firstpost.md absPath of file >>> MarkdownRemark",frontmatter:{title:"First Post!",date:"January 02, 18",path:"/firstpost"}}}]}},pathContext:{}}}});
+//# sourceMappingURL=path---index-4be40905cf3e7a3013bd.js.map
