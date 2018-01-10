@@ -1,5 +1,5 @@
 module.exports = {
-  pathPrefix: '/steplee.github.io'
+  pathPrefix: '/steplee.github.io',
   siteMetadata: {
     title: `Gatsby Default Starter`,
   },
