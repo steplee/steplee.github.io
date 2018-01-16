@@ -1,9 +1,14 @@
 
+html, .my_container, #app {
+  background: #101010;
+}
 
 body {
   font-family: 'Roboto', sans-serif;
   color: text-gray;
   color: gray;
+  height: 100%;
+  min-height: 100%;
 }
 
 .my_nav {
@@ -21,9 +26,19 @@ body {
 }
 
 .my_container {
-  background: #101010;
+  height: 100%;
+  min-height: 100%;
 }
 
+#___gatsby, #___gatsby>div {
+  height: 100%;
+  min-height: 100%;
+}
+
+
+html, body, #app, #app>div {
+  min-height: 100%
+}
 
 .header_bg {
   background-image:url(/aurora.jpg);

@@ -16,6 +16,14 @@ module.exports = {
       }
     },
 
+    {
+      resolve: 'gatsby-source-filesystem',
+      options: {
+        path: 'src/notes',
+        name: 'notes'
+      }
+    },
+
     // Markdown transforming.
     {
       resolve: 'gatsby-transformer-remark',

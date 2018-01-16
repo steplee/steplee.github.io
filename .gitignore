@@ -4,3 +4,4 @@
 _cache
 node_modules
 .cache
+public/

@@ -29,7 +29,10 @@ export default function Index({ data }) {
 
 export const pageQuery = graphql`
   query IndexQuery {
-    allMarkdownRemark(sort: { order: DESC, fields: [frontmatter___date] }) {
+    allMarkdownRemark(
+        sort: { order: DESC, fields: [frontmatter___date] },
+        filter: {fileAbsolutePath: {regex: "/posts/.*md$/"}}
+    ) {
       edges {
         node {
           excerpt(pruneLength: 250)
