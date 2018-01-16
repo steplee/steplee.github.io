@@ -40,6 +40,9 @@ export default function CommonPage (content) {
                 <a className="nav-link" href="#">POSTS</a>
               </li>
               <li className="nav-item">
+                <a className="nav-link" href="/project-list">PROJECTS</a>
+              </li>
+              <li className="nav-item">
                 <a className="nav-link" href="https://github.com/steplee">CODE</a>
               </li>
               <li className="nav-item">

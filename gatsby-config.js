@@ -15,7 +15,6 @@ module.exports = {
         name: 'posts'
       }
     },
-
     {
       resolve: 'gatsby-source-filesystem',
       options: {
@@ -23,6 +22,14 @@ module.exports = {
         name: 'notes'
       }
     },
+    {
+      resolve: 'gatsby-source-filesystem',
+      options: {
+        path: 'src/project-list',
+        name: 'project-list'
+      }
+    },
+
 
     // Markdown transforming.
     {

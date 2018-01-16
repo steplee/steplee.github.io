@@ -27,6 +27,7 @@ exports.createPages = ({ boundActionCreators, graphql }) => {
       edges {
         node {
           excerpt(pruneLength: 250)
+          fileAbsolutePath
           html
           id
           frontmatter {
@@ -43,6 +44,7 @@ exports.createPages = ({ boundActionCreators, graphql }) => {
       return Promise.reject(result.errors);
     }
 
+
     // Actually create the pages
     result.data.allMarkdownRemark.edges
       .forEach(({node}) => {
@@ -57,6 +59,7 @@ exports.createPages = ({ boundActionCreators, graphql }) => {
 
   /* -------------- NOTES ----------------- */
 
+  /*
   var create_notes_pages = graphql(`{
     allMarkdownRemark(
         limit: 1000
@@ -92,6 +95,7 @@ exports.createPages = ({ boundActionCreators, graphql }) => {
         });
       });
   });
+  */
 
 
 
