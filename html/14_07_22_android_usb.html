@@ -21,7 +21,7 @@
     <div class="collapse navbar-collapse" id="navbarColor02">
       <ul class="navbar-nav me-auto">
         <li class="nav-item">
-          <a class="nav-link active" href="./index.html">Blog
+          <a class="nav-link active" href="../index.html">Blog
             <span class="visually-hidden">(current)</span>
           </a>
         </li>
@@ -46,28 +46,23 @@
 <div  id="mainImage"></div>
 
     <div class="container">
-      <div class="page-header">
-        <div class="col-lg-8 col-md-7 col-sm-6">
-          <h1>Android Usb</h1>
-        </div>
-      </div>
       <h1>
-        <span>Android USB</span>
+        <span>Sending Data With Android and USB</span>
       </h1>
       <p>
-        <span>Despite being a Linux user for 10+ years and lesiurely reading books on OSes, I have never really had to look deep into any kernel topic beyond an intermediate level.
+        <span>Despite being a Linux user for 10 years and lesiurely reading books on OSes, I have never really had to look deep into any kernel topic beyond a basic level.
 </span>
       </p>
       <p>
-        <span>However, now I want to transmit data from my Android phone to a laptop at a high data-rate. This could be done over the LAN, but would be subject to WiFi availability and speeds -- which on my router are not great.
+        <span>However, now I want to transmit data from my Android phone to a laptop at a high data-rate. This could be done over the LAN with WiFI, but would be subject to WiFi availability and speeds -- which on my router are not great. USB was an obvious choice and I looked forward to learning a little bit about it and its firmware in Linux.
 </span>
       </p>
       <p>
-        <span>What I want is to transfer a video feed and some sensor data over USB. The Android device should act not as the host, but as the 'gadget' as some people term it. The host is the laptop/desktop. The Android SDK offers some high-level functionality for dealing with USB. Unforunately it is mostly for when the Android device is the host.
+        <span>What I want is to transfer a video feed and some sensor data over USB. The Android device should act not as the host, but as the device or 'gadget'. The host is the laptop/desktop. The Android SDK offers some high-level functionality for dealing with USB. Unforunately it is mostly for when the Android device is the host.
 </span>
       </p>
       <p>
-        <span>So I spent some time seeing how I can accomplish this. The most general way to approach it is to write a USB gadget driver for the Android device and load it into the kernel. But this is pretty complicated. What we want is a userland application (and Android application, with C++ code using the NDK) to do all of the USB configuration and transfers.
+        <span>So I spent some time seeing how I can accomplish this. The most general way to approach it is to write a USB gadget driver for the Android device and load it into the kernel. But this is pretty complicated, and requires rooting your phone which was a no go for me. So my kernel aspirations are still on hold. What I want is a userland application (an Android application, possible with C++ code using the NDK) to do all of the USB configuration and transfers.
 </span>
       </p>
       <p>
@@ -81,6 +76,8 @@
         <span> tool which is a bridge that allows you to interact with the phone from a computer and execute shell commands, data transfers, etc. through a USB connection. So </span>
         <span class="backticked">adb</span>
         <span> was my starting point. Digging into the code, it uses Linux's </span>
+        <span class="backticked">ConfigFS</span>
+        <span> and </span>
         <span class="backticked">FunctionFS</span>
         <span>. </span>
         <span class="backticked">FunctionFS</span>
@@ -88,102 +85,78 @@
 </span>
       </p>
       <p>
-        <span>The process goes like this:
-</span>
-      </p>
-      <ol>
-        <li>
-          <span> Application code creates a functionfs module and mounts it. &quot;ep0&quot; is a file that represents endpoint 0.
-</span>
-        </li>
-        <li>
-          <span> Application code fills structs with metadata about the new endpoints and writes it to &quot;ep0&quot;
-</span>
-        </li>
-        <li>
-          <span> The kernel functionfs module creates the new endpoint
-</span>
-        </li>
-      </ol>
-      <p>
-        <span>There is not great documentation on functionfs, but luckily the </span>
+        <span>There is not great documentation on configfs/functionfs, but luckily the </span>
         <span class="backticked">adb</span>
-        <span> daemon provides a good example of using it.
+        <span> daemon provides a good example of using it. So I looked at the ADB code and it didn't look like too much work, thanks to the nice </span>
+        <a href="https://cs.android.com/android/platform/superproject/+/master:packages/modules/adb/daemon/usb_ffs.cpp;bpv=1;bpt=1;l=252">Android source code browser</a>
+        <span>. But using configfs/functionfs requires creating files in the </span>
+        <span class="backticked">/sys/</span>
+        <span> or </span>
+        <span class="backticked">/dev/</span>
+        <span> directories, which you can't do on Android unless you root the device. So this turned out to be a dead end.
 </span>
       </p>
       <p>
-        <span>Adb is largely self-contained, but there appears the </span>
-        <span class="backticked">UsbGadget</span>
-        <span> and </span>
-        <span class="backticked">MonitorFfs</span>
-        <span> classes play a role.
-</span>
-      </p>
-      <p>
-        <span>The </span>
-        <a href="https://cs.android.com/android/platform/superproject/+/master:packages/modules/adb/daemon/usb_ffs.cpp;bpv=1;bpt=1;l=252?gsn=open_functionfs&amp;gs=kythe%3A%2F%2Fandroid.googlesource.com%2Fplatform%2Fsuperproject%3Flang%3Dc%252B%252B%3Fpath%3Dpackages%2Fmodules%2Fadb%2Fdaemon%2Fusb_ffs.h%23wcPnFn6hhd6u3sUNwsclPIF4c5_j3nF6htwjeXm1Cxc&amp;gs=kythe%3A%2F%2Fandroid.googlesource.com%2Fplatform%2Fsuperproject%3Flang%3Dc%252B%252B%3Fpath%3Dpackages%2Fmodules%2Fadb%2Fdaemon%2Fusb_ffs.cpp%23hAQE_jtK92ASwsz5TP6IMbNIY-HlCosIMSsHeHmeB7Q">`open_functionfs`</a>
-        <span> opens the paths </span>
-        <span class="backticked">/dev/usb-ffs/adb/{ep0,ep1,ep2}</span>
-        <span>, which seem to be created </span>
-        <a href="https://cs.android.com/android/platform/superproject/+/master:hardware/interfaces/usb/gadget/1.2/default/lib/UsbGadgetUtils.cpp;bpv=1;bpt=1;l=191?gsn=addAdb&amp;gs=kythe%3A%2F%2Fandroid.googlesource.com%2Fplatform%2Fsuperproject%3Flang%3Dc%252B%252B%3Fpath%3Dhardware%2Finterfaces%2Fusb%2Fgadget%2F1.2%2Fdefault%2Flib%2Finclude%2FUsbGadgetCommon.h%23N-KZXGkH_qBFEnMVKr5rViGdf6MSnkx5Vny_rd4sa9A&amp;gs=kythe%3A%2F%2Fandroid.googlesource.com%2Fplatform%2Fsuperproject%3Flang%3Dc%252B%252B%3Fpath%3Dhardware%2Finterfaces%2Fusb%2Fgadget%2F1.2%2Fdefault%2Flib%2FUsbGadgetUtils.cpp%23ddz_kn0L6mgRwl0H1gpXa9h2Vmn1hTx75jd5bHAMfrM">here</a>
-        <span>, which is ultimately invoked by usbd.cpp </span>
-        <a href="https://cs.android.com/android/platform/superproject/+/master:system/core/usbd/usbd.cpp;drc=fd8332d402a8cdc3dcb5436209a74f2c85747c66;l=47">usbhere</a>
-        <span>, which seems to invoked as a process by the actual OS </span>
-        <span class="backticked">init()</span>
-        <span> process.
-</span>
-      </p>
-      <p>
-        <span>BUT, I'll need avoid all this crap...
+        <span>Next I stumbled on to the USB tethering feature. This is meant for using your phone's mobile internet on a laptop. But it creates a LAN between your android and other device, so you can also just use it to send IP packets between them. I was able to easily send data between the devices with USB tethering on! I also tried sending UDP packets continuously, and it only dropped a very low percentage of them. Next up: sending a video stream from the phone's camera.
 </span>
       </p>
       <h2>
-        <span>Sending via Tethered USB Network</span>
+        <span>Sending the Video via Tethered USB Network</span>
       </h2>
       <p>
-        <span>I want to use the standard </span>
+        <span>The Android docs on using a device's camera were a little murky. Or maybe I was just impatient and didn't want to read more than I had to. There are several APIs at different levels of generality/ease-of-use. I think you can get the raw camera buffers and apply a codec in your own code, for example. But I wanted to use the </span>
         <span class="backticked">MediaRecorder</span>
-        <span> class, but call </span>
+        <span> class because it implements the </span>
+        <span class="backticked">mpegts</span>
+        <span> container format I want to use for transmitting in real-time. The class has a method </span>
         <span class="backticked">setOutputFile</span>
-        <span> with a socket instead of an actual storage file. This causes a crash with error code -38. After an hour of reviewing Android code, I believe the crash is coming from </span>
+        <span> that you can pass with a string filename, or a java FileDescriptor. So I figured I could open my socket and pass it as the fd. Well... no, this caused a crash with error code </span>
+        <span class="backticked">-38</span>
+        <span> in the </span>
+        <span class="backticked">MediaRecorder::prepare()</span>
+        <span> call.
+</span>
+      </p>
+      <p>
+        <span>After an hour of reviewing Android source code, I believe the crash is coming from </span>
         <a href="https://cs.android.com/android/platform/superproject/+/master:frameworks/av/media/libmediaplayerservice/StagefrightRecorder.cpp;drc=798331bb6d9e88c8e8bbf825544f4ddb96b940b3;bpv=1;bpt=1;l=411?gsn=setOutputFile&amp;gs=kythe%3A%2F%2Fandroid.googlesource.com%2Fplatform%2Fsuperproject%3Flang%3Dc%252B%252B%3Fpath%3Dframeworks%2Fav%2Fmedia%2Flibmediaplayerservice%2FStagefrightRecorder.cpp%23BgUA4AwS7v7SOqBdyx3kjupAHOkiD46ONnTRggHcWg0&amp;gs=kythe%3A%2F%2Fandroid.googlesource.com%2Fplatform%2Fsuperproject%3Flang%3Dc%252B%252B%3Fpath%3Dframeworks%2Fav%2Fmedia%2Flibmediaplayerservice%2FStagefrightRecorder.h%23aD9TAExpI8lkHqClZzHo9AN_grWrEgOFR0omcDetBXY">here</a>
         <span>. Specifically, I think that calling </span>
         <span class="backticked">ftruncate</span>
-        <span> on the socket is causing the issue. I thought I could use </span>
+        <span> on the socket is causing the issue. I thought I could hack this by using </span>
         <span class="backticked">dup2</span>
         <span> to overwrite the fd after calling </span>
         <span class="backticked">setOutputFile</span>
         <span> and before </span>
         <span class="backticked">prepare</span>
-        <span>, but actually the code seems to run in a different process as a service and interacts via RPC, so this trick won't work. A process can send file descriptors to another via Unix domain sockets and the </span>
+        <span>, but actually the code seems to run in a different process as a service and interacts via RPC, so this trick didn't work. I've never had to do it, but I wondered how the app process could send the fd (which is just an integer) to the daemon. Apparently on Linux you process can send file descriptors to another via Unix domain sockets and the </span>
         <span class="backticked">sendmsg</span>
         <span>/</span>
         <span class="backticked">recvmsg</span>
-        <span> with ancilary data.
+        <span> with ancillary data.
 </span>
       </p>
       <p>
-        <span>So I need to write to a file descriptor backing </span>
+        <span>So I needed to write to a file descriptor backing </span>
         <span class="backticked">ftruncate</span>
         <span>. My next thought was to use a fifo/named-pipe. I don't know if the POSIX C </span>
         <span class="backticked">mkfifo</span>
-        <span> is supported on Android, but there is the </span>
+        <span> is permitted on Android, but there is the </span>
         <span class="backticked">ParcelFileDescriptor.makePipe</span>
         <span> that was easy enough to use. I used the write end as the </span>
         <span class="backticked">setOutputFile</span>
-        <span> argument and spawned a thread to send UDP packets from the read end. And ... it works! I can fplay the resulting mpegts stream on my desktop with ffplay.
+        <span> argument and spawned a thread to send UDP packets from the read end. And ... it works! I can ffplay the resulting mpegts stream on my desktop and see it. The stream is pretty good over UDP. Sometimes packets are dropped in a bunch, but it's good enough for me.
 </span>
       </p>
-      <div class="code"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">main</span><span class="p">():</span>
-	<span class="n">x</span> <span class="o">=</span> <span class="mi">2</span>
-	<span class="k">return</span> <span class="mi">1</span>
-</pre></div>
-</div>
-      <h2>
-        <span>Notes from </span>
-        <a href="https://www.youtube.com/watch?v=mQYh4xYG5a4">this video</a>
-      </h2>
+      <h6>
+        <span>ConfigFS/FunctionFS Notes (which I didn't wind up using)</span>
+      </h6>
       <ul>
+        <li>
+          <span> </span>
+          <a href="https://www.youtube.com/watch?v=mQYh4xYG5a4">Not totally relevant video</a>
+          <span>
+</span>
+        </li>
         <li>
           <span> A </span>
           <span class="backticked">function</span>
@@ -196,6 +169,10 @@
         </li>
         <li>
           <span> ConfigFS is an interface that allows modularly mixing/matching USB gadgets. Allows creaton/deletion of kernel objects by user (in shell)
+</span>
+        </li>
+        <li>
+          <span> The user specifies a USB 'scheme' (its vendor, product, function+endpoints)
 </span>
         </li>
       </ul>

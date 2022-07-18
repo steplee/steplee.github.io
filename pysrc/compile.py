@@ -78,9 +78,7 @@ def parseMarkdownToHtml(title, lines):
 
         with D.div(_class='container') as container:
 
-            with D.div(_class='page-header'):
-                with D.div(_class='col-lg-8 col-md-7 col-sm-6'):
-                    D.h1(title)
+            #with D.div(_class='page-header'): with D.div(_class='col-lg-8 col-md-7 col-sm-6'): D.h1(title)
 
             while i < len(lines):
                 line = lines[i]
@@ -184,7 +182,7 @@ def get_navbar():
     <div class="collapse navbar-collapse" id="navbarColor02">
       <ul class="navbar-nav me-auto">
         <li class="nav-item">
-          <a class="nav-link active" href="./index.html">Blog
+          <a class="nav-link active" href="../index.html">Blog
             <span class="visually-hidden">(current)</span>
           </a>
         </li>
@@ -246,13 +244,13 @@ def makePosts():
 
 def makeIndex(postFileNames):
 
-    doc = dominate.document(title='Steplee')
+    doc = dominate.document(title='Steplee Blog')
     with doc.head:
         D.link(rel='stylesheet', href='res/main.css')
         D.link(rel='stylesheet', href='res/boostrap.darkly.css')
         D.link(rel='stylesheet', href='res/pygments.css')
         #script(type='text/javascript', src='script.js')
-        D.script(type='text/javascript', src='https://cdn.jsdelivr.net/npm/popper.js@1.12.9/dist/umd/popper.min.js')
+        # D.script(type='text/javascript', src='https://cdn.jsdelivr.net/npm/popper.js@1.12.9/dist/umd/popper.min.js')
         roboto_weight = 400
         doc.head.add(dominate.util.raw('''
 <link rel="preconnect" href="https://fonts.googleapis.com"> <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
