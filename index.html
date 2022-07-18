@@ -1,10 +1,14 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title>Android Usb</title>
+    <title>Steplee</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"> <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jura&family=Roboto:wght@400&display=swap" rel="stylesheet">
+
     <link href="res/main.css" rel="stylesheet">
     <link href="res/boostrap.darkly.css" rel="stylesheet">
     <link href="res/pygments.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/popper.js@1.12.9/dist/umd/popper.min.js" type="text/javascript"></script>
   </head>
   <body>
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
@@ -17,29 +21,23 @@
     <div class="collapse navbar-collapse" id="navbarColor02">
       <ul class="navbar-nav me-auto">
         <li class="nav-item">
-          <a class="nav-link active" href="#">Home
+          <a class="nav-link active" href="./index.html">Blog
             <span class="visually-hidden">(current)</span>
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link" href="#">Features</a>
+          <a class="nav-link" href="https://github.com/steplee">GitHub</a>
         </li>
-        <li class="nav-item">
-          <a class="nav-link" href="#">Pricing</a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link" href="#">About</a>
-        </li>
+
+        <!-- This is not working -->
         <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle" data-bs-toggle="dropdown" href="#" role="button" aria-haspopup="true" aria-expanded="false">Dropdown</a>
-          <div class="dropdown-menu">
-            <a class="dropdown-item" href="#">Action</a>
-            <a class="dropdown-item" href="#">Another action</a>
-            <a class="dropdown-item" href="#">Something else here</a>
-            <div class="dropdown-divider"></div>
-            <a class="dropdown-item" href="#">Separated link</a>
+          <a class="nav-link dropdown-toggle" data-bs-toggle="dropdown" href="#" role="button" aria-haspopup="true" aria-expanded="false" id="dropdownMenuButton1" data-toggle="dropdown1">Links</a>
+          <div class="dropdown-menu" aria-labelledby="dropdownMenuButton1" id="dropdown1">
+            <a class="dropdown-item" href="https://www.shadertoy.com/user/stephenl7797">ShaderToy</a>
+            <a class="dropdown-item" href="https://www.shadertoy.com/user/stephenl7797">ShaderToy</a>
           </div>
         </li>
+
       </ul>
     </div>
   </div>
@@ -51,154 +49,14 @@
       <div class="page-header">
         <div class="col-lg-8 col-md-7 col-sm-6"></div>
       </div>
-      <h1>
-        <span>Android USB</span>
-      </h1>
-      <p>
-        <span>Despite being a Linux user for 10+ years and lesiurely reading books on OSes, I have never really had to look deep into any kernel topic beyond an intermediate level.
-</span>
-      </p>
-      <p>
-        <span>However, now I want to transmit data from my Android phone to a laptop at a high data-rate. This could be done over the LAN, but would be subject to WiFi availability and speeds -- which on my router are not great.
-</span>
-      </p>
-      <p>
-        <span>What I want is to transfer a video feed and some sensor data over USB. The Android device should act not as the host, but as the 'gadget' as some people term it. The host is the laptop/desktop. The Android SDK offers some high-level functionality for dealing with USB. Unforunately it is mostly for when the Android device is the host.
-</span>
-      </p>
-      <p>
-        <span>So I spent some time seeing how I can accomplish this. The most general way to approach it is to write a USB gadget driver for the Android device and load it into the kernel. But this is pretty complicated. What we want is a userland application (and Android application, with C++ code using the NDK) to do all of the USB configuration and transfers.
-</span>
-      </p>
-      <p>
-        <span class="backticked">libusb</span>
-        <span> is a popular library I had heard of, but it only operates on the host. Android has high-level support for &quot;accessories&quot; but this requires following some protocol with not much documentation, and appears to be targeted for wearables and such.
-</span>
-      </p>
-      <p>
-        <span>I know the Android SDK includes the </span>
-        <span class="backticked">adb</span>
-        <span> tool which is a bridge that allows you to interact with the phone from a computer and execute shell commands, data transfers, etc. through a USB connection. So </span>
-        <span class="backticked">adb</span>
-        <span> was my starting point. Digging into the code, it uses Linux's </span>
-        <span class="backticked">FunctionFS</span>
-        <span>. </span>
-        <span class="backticked">FunctionFS</span>
-        <span> is also not detailed very well, but it offers a way for userland code to add a new USB endpoint and facilitate transfers. This is exactly what I needed!
-</span>
-      </p>
-      <p>
-        <span>The process goes like this:
-</span>
-      </p>
-      <ol>
-        <li>
-          <span> Application code creates a functionfs module and mounts it. &quot;ep0&quot; is a file that represents endpoint 0.
-</span>
-        </li>
-        <li>
-          <span> Application code fills structs with metadata about the new endpoints and writes it to &quot;ep0&quot;
-</span>
-        </li>
-        <li>
-          <span> The kernel functionfs module creates the new endpoint
-</span>
-        </li>
-      </ol>
-      <p>
-        <span>There is not great documentation on functionfs, but luckily the </span>
-        <span class="backticked">adb</span>
-        <span> daemon provides a good example of using it.
-</span>
-      </p>
-      <p>
-        <span>Adb is largely self-contained, but there appears the </span>
-        <span class="backticked">UsbGadget</span>
-        <span> and </span>
-        <span class="backticked">MonitorFfs</span>
-        <span> classes play a role.
-</span>
-      </p>
-      <p>
-        <span>The </span>
-        <a href="https://cs.android.com/android/platform/superproject/+/master:packages/modules/adb/daemon/usb_ffs.cpp;bpv=1;bpt=1;l=252?gsn=open_functionfs&amp;gs=kythe%3A%2F%2Fandroid.googlesource.com%2Fplatform%2Fsuperproject%3Flang%3Dc%252B%252B%3Fpath%3Dpackages%2Fmodules%2Fadb%2Fdaemon%2Fusb_ffs.h%23wcPnFn6hhd6u3sUNwsclPIF4c5_j3nF6htwjeXm1Cxc&amp;gs=kythe%3A%2F%2Fandroid.googlesource.com%2Fplatform%2Fsuperproject%3Flang%3Dc%252B%252B%3Fpath%3Dpackages%2Fmodules%2Fadb%2Fdaemon%2Fusb_ffs.cpp%23hAQE_jtK92ASwsz5TP6IMbNIY-HlCosIMSsHeHmeB7Q">`open_functionfs`</a>
-        <span> opens the paths </span>
-        <span class="backticked">/dev/usb-ffs/adb/{ep0,ep1,ep2}</span>
-        <span>, which seem to be created </span>
-        <a href="https://cs.android.com/android/platform/superproject/+/master:hardware/interfaces/usb/gadget/1.2/default/lib/UsbGadgetUtils.cpp;bpv=1;bpt=1;l=191?gsn=addAdb&amp;gs=kythe%3A%2F%2Fandroid.googlesource.com%2Fplatform%2Fsuperproject%3Flang%3Dc%252B%252B%3Fpath%3Dhardware%2Finterfaces%2Fusb%2Fgadget%2F1.2%2Fdefault%2Flib%2Finclude%2FUsbGadgetCommon.h%23N-KZXGkH_qBFEnMVKr5rViGdf6MSnkx5Vny_rd4sa9A&amp;gs=kythe%3A%2F%2Fandroid.googlesource.com%2Fplatform%2Fsuperproject%3Flang%3Dc%252B%252B%3Fpath%3Dhardware%2Finterfaces%2Fusb%2Fgadget%2F1.2%2Fdefault%2Flib%2FUsbGadgetUtils.cpp%23ddz_kn0L6mgRwl0H1gpXa9h2Vmn1hTx75jd5bHAMfrM">here</a>
-        <span>, which is ultimately invoked by usbd.cpp </span>
-        <a href="https://cs.android.com/android/platform/superproject/+/master:system/core/usbd/usbd.cpp;drc=fd8332d402a8cdc3dcb5436209a74f2c85747c66;l=47">usbhere</a>
-        <span>, which seems to invoked as a process by the actual OS </span>
-        <span class="backticked">init()</span>
-        <span> process.
-</span>
-      </p>
-      <p>
-        <span>BUT, I'll need avoid all this crap...
-</span>
-      </p>
-      <h2>
-        <span>Sending via Tethered USB Network</span>
-      </h2>
-      <p>
-        <span>I want to use the standard </span>
-        <span class="backticked">MediaRecorder</span>
-        <span> class, but call </span>
-        <span class="backticked">setOutputFile</span>
-        <span> with a socket instead of an actual storage file. This causes a crash with error code -38. After an hour of reviewing Android code, I believe the crash is coming from </span>
-        <a href="https://cs.android.com/android/platform/superproject/+/master:frameworks/av/media/libmediaplayerservice/StagefrightRecorder.cpp;drc=798331bb6d9e88c8e8bbf825544f4ddb96b940b3;bpv=1;bpt=1;l=411?gsn=setOutputFile&amp;gs=kythe%3A%2F%2Fandroid.googlesource.com%2Fplatform%2Fsuperproject%3Flang%3Dc%252B%252B%3Fpath%3Dframeworks%2Fav%2Fmedia%2Flibmediaplayerservice%2FStagefrightRecorder.cpp%23BgUA4AwS7v7SOqBdyx3kjupAHOkiD46ONnTRggHcWg0&amp;gs=kythe%3A%2F%2Fandroid.googlesource.com%2Fplatform%2Fsuperproject%3Flang%3Dc%252B%252B%3Fpath%3Dframeworks%2Fav%2Fmedia%2Flibmediaplayerservice%2FStagefrightRecorder.h%23aD9TAExpI8lkHqClZzHo9AN_grWrEgOFR0omcDetBXY">here</a>
-        <span>. Specifically, I think that calling </span>
-        <span class="backticked">ftruncate</span>
-        <span> on the socket is causing the issue. I thought I could use </span>
-        <span class="backticked">dup2</span>
-        <span> to overwrite the fd after calling </span>
-        <span class="backticked">setOutputFile</span>
-        <span> and before </span>
-        <span class="backticked">prepare</span>
-        <span>, but actually the code seems to run in a different process as a service and interacts via RPC, so this trick won't work. A process can send file descriptors to another via Unix domain sockets and the </span>
-        <span class="backticked">sendmsg</span>
-        <span>/</span>
-        <span class="backticked">recvmsg</span>
-        <span> with ancilary data.
-</span>
-      </p>
-      <p>
-        <span>So I need to write to a file descriptor backing </span>
-        <span class="backticked">ftruncate</span>
-        <span>. My next thought was to use a fifo/named-pipe. I don't know if the POSIX C </span>
-        <span class="backticked">mkfifo</span>
-        <span> is supported on Android, but there is the </span>
-        <span class="backticked">ParcelFileDescriptor.makePipe</span>
-        <span> that was easy enough to use. I used the write end as the </span>
-        <span class="backticked">setOutputFile</span>
-        <span> argument and spawned a thread to send UDP packets from the read end. And ... it works! I can fplay the resulting mpegts stream on my desktop with ffplay.
-</span>
-      </p>
-      <div class="code"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">main</span><span class="p">():</span>
-	<span class="n">x</span> <span class="o">=</span> <span class="mi">2</span>
-	<span class="k">return</span> <span class="mi">1</span>
-</pre></div>
-</div>
-      <h2>
-        <span>Notes from </span>
-        <a href="https://www.youtube.com/watch?v=mQYh4xYG5a4">this video</a>
-      </h2>
-      <ul>
-        <li>
-          <span> A </span>
-          <span class="backticked">function</span>
-          <span> is the implementation of an interface in the kernel
-</span>
-        </li>
-        <li>
-          <span> FunctionFS delegates USB control to userland
-</span>
-        </li>
-        <li>
-          <span> ConfigFS is an interface that allows modularly mixing/matching USB gadgets. Allows creaton/deletion of kernel objects by user (in shell)
-</span>
-        </li>
-      </ul>
+      <div class="postList">
+        <h2>Posts</h2>
+        <ul>
+          <li>
+            <a class="postLink" href="html/14_07_22_android_usb.html">Android Usb</a>
+          </li>
+        </ul>
+      </div>
     </div>
   </body>
 </html>
