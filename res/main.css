@@ -1,0 +1,35 @@
+
+.backticked {
+	/* color: #557; */
+    /* background-color: #e9e9f5; */
+	color: #99b;
+    background-color: #112;
+    font-family: monospace;
+}
+
+#mainImage {
+	flex-grow: 1;
+	height: 500px;
+
+	background-size: cover;
+	background-image:
+		linear-gradient(to bottom, rgba(16, 16, 16, 1.0), rgba(16,16,16,0.0) 10% 90%, rgba(16, 16, 16, 1.0)),
+		url(mainImage.jpg)
+		;
+	background-blend-mode: normal;
+
+	margin-bottom: 10px;
+}
+
+h1 {
+	margin: 25px;
+	margin-left: 5px;
+}
+h2 {
+	margin: 10px;
+	margin-left: 10px;
+}
+
+p {
+	margin-left: 15px;
+}
