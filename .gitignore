@@ -1,3 +1,7 @@
 *.pyc
 __pycache__
 *.jwk
+draft/
+node_modules
+extraPages/**/*bundled.js
+package-lock.json

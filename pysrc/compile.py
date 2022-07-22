@@ -65,7 +65,9 @@ def parseMarkdownToHtml(title, lines):
         D.link(rel='stylesheet', href='../res/boostrap.darkly.css')
         D.link(rel='stylesheet', href='../res/pygments.css')
         #script(type='text/javascript', src='script.js')
-        D.script(type='text/javascript', src='https://cdn.jsdelivr.net/npm/popper.js@1.12.9/dist/umd/popper.min.js')
+        # D.script(type='text/javascript', src='https://cdn.jsdelivr.net/npm/popper.js@1.12.9/dist/umd/popper.min.js')
+        D.script(type='text/javascript', src='https://polyfill.io/v3/polyfill.min.js?features=es6')
+        D.script(type='text/javascript', _async=True, id='MathJax-script', src='https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js')
         roboto_weight = 400
         doc.head.add(dominate.util.raw('''
 <link rel="preconnect" href="https://fonts.googleapis.com"> <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -170,7 +172,7 @@ def get_mainImage():
     # return '\n<image src="res/mainImage.jpg" id="mainImage"/>\n'
     return '\n<div  id="mainImage"></div>\n'
 
-def get_navbar():
+def get_navbar(pathToRoot='../'):
     return '''
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
   <div class="container-fluid">
@@ -182,7 +184,7 @@ def get_navbar():
     <div class="collapse navbar-collapse" id="navbarColor02">
       <ul class="navbar-nav me-auto">
         <li class="nav-item">
-          <a class="nav-link active" href="../index.html">Blog
+          <a class="nav-link active" href="{}index.html">Blog
             <span class="visually-hidden">(current)</span>
           </a>
         </li>
@@ -203,7 +205,7 @@ def get_navbar():
     </div>
   </div>
 </nav>
-    '''
+    '''.format(pathToRoot)
 
 
 def iterPosts():
@@ -258,7 +260,7 @@ def makeIndex(postFileNames):
 '''.format(roboto_weight)))
 
     with doc.body as body:
-        body.add(dominate.util.raw(get_navbar()))
+        body.add(dominate.util.raw(get_navbar(pathToRoot='')))
         body.add(dominate.util.raw(get_mainImage()))
 
         with D.div(_class='container') as container:
