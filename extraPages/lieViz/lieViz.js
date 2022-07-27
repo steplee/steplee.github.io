@@ -1,6 +1,19 @@
 const regl = require('regl')()
 const mat4 = require('gl-mat4')
 
+let normalBlend = {
+		enable: true,
+		func: {
+			srcRGB: 'src alpha',
+			srcAlpha: 1,
+			dstRGB: 'one minus src alpha',
+			dstAlpha: 1
+		},
+		equation: {
+			rgb: 'add',
+			alpha: 'add'
+		},
+	}
 
 // Return [verts, inds] for a sphere in [-1,1]^3
 function make_sphere() {
@@ -133,6 +146,10 @@ const drawSphere = regl({
 		color: regl.prop('color'),
 		mvp: regl.prop('mvp')
 	},
+
+	cull: {enable: true},
+	frontFace: 'cw',
+	blend: normalBlend
 })
 
 let curveVerts1 = regl.buffer({
@@ -177,6 +194,7 @@ const drawCurve = regl({
 		color: regl.prop('color'),
 		mvp: regl.prop('mvp')
 	},
+	blend: normalBlend
 })
 
 let arrowVerts = regl.buffer({
@@ -229,6 +247,7 @@ const drawArrow = regl({
 	// elements: regl.elements({primitive:'points', count: 100}),
 
 	cull: {enable:false},
+	blend: { enable: true },
 
 	uniforms: {
 		color: regl.prop('color'),
@@ -238,26 +257,31 @@ const drawArrow = regl({
 	},
 })
 
+function norm3(a) {
+	return Math.sqrt(a[0]*a[0] + a[1]*a[1] + a[2]*a[2]);
+}
+function normalize3(a) {
+	let l = norm3(a);
+	return [a[0]/l, a[1]/l, a[2]/l];
+}
 function dist3(a,b) {
 	let dx = b[0] - a[0];
 	let dz = b[1] - a[1];
 	let dy = b[2] - a[2];
 	return Math.sqrt(dx*dx+dy*dy+dz*dz);
 }
-function drawArrowFromTo(a, b, color, mvp) {
+function drawArrowFromTo(a, b, color, mvp, view) {
 	let verts = []
-
-	// let zplus = [mvp[0*4+2], mvp[1*4+2], mvp[2*4+2]]
-	// let eye = [mvp[0*4+3], mvp[1*4+3], mvp[2*4+3]]
-	let zplus = [mvp[2*4+0], mvp[2*4+1], mvp[2*4+2]]
-	// let zplus = [0,0,1]
-	// let zplus = [mvp[1*4+0], mvp[1*4+1], mvp[1*4+2]]
-	let eye = [mvp[3*4+0], mvp[3*4+1], mvp[3*4+2]]
+	let zplus = [view[2*4+0], view[2*4+1], view[2*4+2]]
+	// let zplus = [view[0*4+1], view[1*4+1], view[2*4+1]]
+	// let zplus = [view[1*4+0], view[1*4+1], view[1*4+2]]
+	let eye = [view[3*4+0], view[3*4+1], view[3*4+2]]
 
 	// Technically scale is dependent on FoV, but i'll ignore that
-	let dir = [b[0]-a[0], b[1]-a[1], b[2]-a[2]];
 	let da = dist3(a,eye);
 	let db = dist3(b,eye);
+	let ab = dist3(a,b);
+	let hs = .9;
 
 
 
@@ -265,22 +289,25 @@ function drawArrowFromTo(a, b, color, mvp) {
 	// in order to get the verts without writing them.
 	// But not exactly -- that would scale the head disproportionately.
 	// So I'll scale/shift verts cpu side, but still put the scale/rotation into the MVP
-	let f = 1 / da;
-	let n = 1 / db;
+	let w = .5;
+	let f = .04 / da;
+	let n = .04 / db;
 	verts = new Float32Array([
-		-1*f,-1*f, 0,
-		 1*f,-1*f, 0,
-		 1*n, 1*n, 0,
-		-1*n, 1*n, 0,
+		-1*f*w,0, ab*1-0,
+		 1*f*w,0, ab*1-0,
+		 1*n*w,0, (1-hs)*ab,
+		-1*n*w,0, (1-hs)*ab,
 
-		-2*n, 1*n, 0,
-		 2*n, 1*n, 0,
-		 0, 2*n, 0
+		-2*n,0, (1-hs)*ab,
+		 2*n,0, (1-hs)*ab,
+		 0,0, 1-1
 	])
 
 	let new_mvp = mat4.create();
-	mat4.lookAt(new_mvp, a, dir, zplus)
-	// mat4.multiply(new_mvp, new_mvp, mvp);
+	// mat4.lookAt(new_mvp, b, a, zplus)
+	let ma = [-a[0],-a[1],-a[2]];
+	let mb = [-b[0],-b[1],-b[2]];
+	mat4.lookAt(new_mvp, mb,ma, zplus)
 	mat4.multiply(new_mvp, mvp, new_mvp);
 
 
@@ -301,7 +328,7 @@ let it = regl.frame((ctx) => {
 
 	let view = mat4.create()
 	// mat4.lookAt(view, [2,2,15.2], [0,0,0], [0,0,1])
-	mat4.lookAt(view, [2,2,1.2], [0,0,0], [0,0,1])
+	mat4.lookAt(view, [2,2,.0], [0,0,0], [0,0,1])
 	mat4.rotateZ(view,view,time*.5);
 
 	let mvp = mat4.create()
@@ -314,22 +341,23 @@ let it = regl.frame((ctx) => {
 		depth: 1
 	})
 
-	// drawSphere({ mvp: mvp, color: [ Math.cos(time * 0.1), Math.sin(time * 0.8), Math.cos(time * 0.3), 1 ] })
 
+	if (time < .1) {
 	let newVerts = []
 	for (var i=0; i<100; i++) {
 		// let a = 1. + Math.exp(-Math.cos(Math.PI*(time - i))*3.)
 		let a = .3 + Math.exp((.5+.5*Math.cos(Math.PI*(time - 9.*i/100))) * -20.) * .3
-		newVerts.push(a*Math.cos(2*3.141*i/100))
-		newVerts.push(a*Math.sin(2*3.141*i/100))
-		newVerts.push(i/100-.5)
-		// newVerts.push(i/100)
+		newVerts.push((i/100)*a*Math.cos(2*3.141*i/100))
+		newVerts.push((i/100)*a*Math.sin(2*3.141*i/100))
+		// newVerts.push(i/100-.5)
+		newVerts.push(i/100)
 		// newVerts.push(0/100)
 		// newVerts.push(0)
 		newVerts.push(i/100)
 	}
 	// console.log(newVerts)
 	curveVerts1.subdata(newVerts)
+	}
 
 	drawCurve({
 		mvp: mvp,
@@ -337,9 +365,11 @@ let it = regl.frame((ctx) => {
 	})
 
 	drawArrowFromTo(
-		[-1,0,0], [.5,.5,.5],
-		[ Math.cos(time * 0.1), Math.sin(time * 0.8), Math.cos(time * 0.3), 1 ], mvp
+		[-0,.6,.8], [.0,.8,0.0],
+		[ Math.cos(time * 0.1), Math.sin(time * 0.8), Math.cos(time * 0.3), 1 ], mvp, view
 	)
+
+	drawSphere({ mvp: mvp, color: [ Math.cos(time * 0.1), Math.sin(time * 0.8), Math.cos(time * 0.3), .1 ] })
 
 	// it.cancel()
 })
