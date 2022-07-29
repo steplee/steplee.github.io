@@ -1,8 +1,10 @@
 import numpy as np, os, sys
 import dominate, dominate.tags as D
 from dominate.util import raw
-import sympy, time
+import sympy, time, json
+from sympy import symbols, Matrix, cos as cos_, sin as sin_, diff, simplify, pprint, count_ops, cse, Abs, lambdify
 np.set_printoptions(suppress=True)
+from matplotlib import pyplot as plt
 
 '''
 
@@ -36,14 +38,21 @@ But I want to build up to it!
 # Jacobians & MathUtils
 ########################################################################################
 
-from sympy import symbols, Matrix, cos, sin, diff, simplify, pprint, count_ops, cse, Abs
+# Mine is a Y-X-Z system:
+#    1) yaw   around y
+#    2) pitch around x
+#    3) roll  around z
+# This is the same as the more standard ZYX, but Z and Y are swapped and Z flipped.
+# This is more intuitive for the image I have in my head:
+# The front of the vehicle is Z+ and at id points north
+# The right-side           is X+ and at id points east
+# down                     is Y+ and at id points down into Earth
 r,p,y = sympy.symbols('r p y')
 x,y,z = sympy.symbols('x y z')
-R = Matrix([[cos(r), -sin(r), 0], [sin(r), cos(r), 0], [0, 0, 1]])
-P = Matrix([[1, 0, 0], [0, cos(p), -sin(p)], [0, sin(p), cos(p)]])
-Y = Matrix([[cos(y), 0, -sin(y)], [0, 1, 0], [sin(y), 0, cos(y)]])
+R = Matrix([[cos_(r), -sin_(r), 0], [sin_(r), cos_(r), 0], [0, 0, 1]])
+P = Matrix([[1, 0, 0], [0, cos_(p), -sin_(p)], [0, sin_(p), cos_(p)]])
+Y = Matrix([[cos_(y), 0, -sin_(y)], [0, 1, 0], [sin_(y), 0, cos_(y)]])
 RPY = R*P*Y
-
 
 def skew(v):
     return np.array((
@@ -72,6 +81,15 @@ def skew_sympy(v):
         [v[2], 0,     -v[0]],
         [-v[1], v[0], 0]])
 
+def log_R(R):
+    t = np.arccos((np.trace(R) - 1) * .5)
+    d = np.linalg.norm((R[2,1]-R[1,2], R[0,1]-R[1,0], R[0,2]-R[2,0]))
+    return np.array((R[2,1]-R[1,2], R[0,2]-R[2,0], R[1,0]-R[0,1])) * t / d
+
+# print(' - cycle 000', log_R(rodrigues(np.array((1e-9,0,0)))))
+# print(' - cycle 001', log_R(rodrigues(np.array((1e-9,0,1)))))
+# print(' - cycle 011', log_R(rodrigues(np.array((1e-9,1,1))))) sys.exit(0)
+
 # Note: this breaks down at theta=0
 def rodrigues_sympy(k):
     theta = k.norm()
@@ -86,9 +104,9 @@ def rodrigues_sympy(k):
 # Note: this is highly dependent on below RPY formulation
 def matrix_to_rpy_sympy(R):
     from sympy import asin, atan2, Matrix
-    return Matrix([-atan2(R[0,1], R[1,1]), asin(R[2,1]), atan2(R[2,0],R[2,2])])
+    return Matrix([atan2(-R[0,1], R[1,1]), asin(R[2,1]), atan2(R[2,0],R[2,2])])
 def matrix_to_rpy(R):
-    return np.array((-np.arctan2(R[0,1], R[1,1]), np.arcsin(R[2,1]), np.arctan2(R[2,0], R[2,2])))
+    return np.array((np.arctan2(-R[0,1], R[1,1]), np.arcsin(R[2,1]), np.arctan2(R[2,0], R[2,2])))
 
 # Test via cycle
 # print('cycle rpy [0 0 .5]:', matrix_to_rpy_sympy(rpy_to_R([0,0,.5])))
@@ -165,7 +183,7 @@ def gen_rpy_code(approximate=True):
 GRAVITY = 9.92
 
 # Return tensor of [N,9] measurments (acc, gyr, mag)
-def generateSimData_1(N=400, sigmas=None):
+def generateSimData_1(N=100, sigmas=None):
     if sigmas is None: sigmas = np.ones(9)
 
     # Actually no, its using rot vecs and they don't compose like this
@@ -176,31 +194,35 @@ def generateSimData_1(N=400, sigmas=None):
     #   4) rotate like a yaw back
     #   5) rotate like a roll back
 
-    out = np.zeros((N,10),dtype=np.float32)
+    out = np.zeros((N,13),dtype=np.float32)
     trueRs = np.zeros((N,3,3),dtype=np.float32)
     trueRs[0] = np.eye(3)
     acc,gyr,mag = [np.zeros(3,dtype=np.float32) for _ in range(3)]
-    rvec = np.zeros(3)
+    rvec = np.zeros(3,dtype=np.float32) + 1e-9
     # speed = .1 / N
-    speed = .1 / N
+    speed = 2 / N
     for i,t in enumerate(np.linspace(0,1, N)):
         if t < .01:
             new_gyr = 0,0,0
         elif t < .1:
-            new_gyr = (0,0,speed)
+            new_gyr = (0,speed,0) #Messed up, this should be yaw but is pitch
         elif t < .3:
             new_gyr = (speed*.2,0,0)
         elif t < .5:
-            new_gyr = (0,0,-speed)
+            new_gyr = (0,-speed,0)
         elif t < .7:
             new_gyr = (-speed*.2,0,0)
+        else:
+            new_gyr = (0,0,0)
         trueRs[i] = trueRs[i-1 if i-1 >= 0 else 0] @ rodrigues(new_gyr)
-        R = rodrigues((rvec+rvec)*.5)
+        R = rodrigues((rvec+new_gyr)*.5)
         rvec = rvec + new_gyr
+        # rvec = log_R(R)
+        print(rvec)
         gyr[:] = new_gyr
         mag[:] = R.T @ (0,0,1)
         acc[:] = R.T @ (0,0,GRAVITY)
-        out[i] = t, *acc, *gyr, *mag
+        out[i] = t, *acc, *gyr, *mag, *rvec
 
     return out, trueRs
 
@@ -211,40 +233,55 @@ def generateSimData_1(N=400, sigmas=None):
 class BaseFilter():
     def __init__(self, name):
         self.name = name
+        self.estimates = []
+        self.covs = []
     def step(self, vals):
         raise NotImplementedError()
+    def getRotAndCov(self, i):
+        return rpy_to_R(self.estimates[i]), self.covs[i]
 
 class RpyFilter(BaseFilter):
     def __init__(self):
         super().__init__('Rpy')
         self.lastTime = 0
         self.Jplus, self.Jobs = gen_rpy_code()
+        self.Jplus_ = lambdify(symbols('r p y k1 k2 k3 kn2'), self.Jplus, 'numpy')
+        import inspect
+        print(inspect.getsource(self.Jplus_))
         self.rpy = np.array([1e-9,1e-9,1e-9],dtype=np.float32)
         self.cov = np.eye(3,dtype=np.float32)
 
     def step(self, vals, truth):
-        time, acc, gyr, mag = vals[0], vals[1:4], vals[4:7], vals[7:]
+        time, acc, gyr, mag, rvec = vals[0], vals[1:4], vals[4:7], vals[7:10], vals[10:]
         dt = self.lastTime - time
 
         # Time Step: spin according to gyro
-        F = eval_expr(self.Jplus,
-                r=self.rpy[0], p=self.rpy[1], y=self.rpy[2],
-                k1=gyr[0], k2=gyr[1], k3=gyr[2], kn2=gyr@gyr)
+        if 0:
+            F = eval_expr(self.Jplus,
+                    r=self.rpy[0], p=self.rpy[1], y=self.rpy[2],
+                    k1=gyr[0], k2=gyr[1], k3=gyr[2], kn2=gyr@gyr)
+        else:
+            F = self.Jplus_(self.rpy[0], self.rpy[1], self.rpy[2], gyr[0], gyr[1], gyr[2], gyr@gyr+1e-9)
+
+
         print('gyr:', gyr)
         print('F:\n',F)
         self.rpy = matrix_to_rpy(rpy_to_R(self.rpy) @ rodrigues(gyr))
-        # self.rpy += (self.rpy + F @ gyr) % np.pi
+        # self.rpy = (self.rpy + F @ gyr)
         # self.rpy = (self.rpy + F @ gyr) % np.pi
         # self.rpy += (self.rpy @ rodrigues(gyr)) % np.pi
-        # self.cov = F @ self.cov @ F.T
+        self.cov = F @ self.cov @ F.T
+        print('cov:\n', self.cov)
         print('rpy:', self.rpy)
         print('true R:\n', truth)
         print('pred R:\n', rpy_to_R(self.rpy))
-        # print('cov:\n', self.cov)
 
         # Measurement Step: ekf on mag/grav
-        # obs_zplus_res = 
-        # obs_zplus_res = 
+        # obs_zplus_res =
+        # obs_zplus_res =
+
+        self.estimates.append(np.copy(self.rpy))
+        self.covs.append(np.copy(self.cov))
 
         self.lastTime = time
 
@@ -268,8 +305,9 @@ def writeWebPage(valss, truth, filterOutputs):
                     ','.join(('{:.5g}'.format(s) for s in valss.reshape(-1))) )))
 
             filtMap = {}
-            for i,(filter,fo) in enumerate(filterOutputs.items()):
-                filtMap[filter.name] = fo
+            for i,(name,fo) in enumerate(filterOutputs.items()):
+                pass
+                #filtMap[name] = fo
             doc.head.add(raw('window.filterData = ' + json.dumps(filtMap)))
 
             doc.head.add(D.script(type='text/javascript', src='runOri.js'))
@@ -284,11 +322,31 @@ def run_filter(filt, valss, truth):
         # if i > 20: sys.exit(0)
         # time.sleep(1)
 
+    errs = []
+    sigmas = []
+    plt.title('Err/Sig')
+    for i,vals in enumerate(valss):
+        time, acc, gyr, mag, rvec = vals[0], vals[1:4], vals[4:7], vals[7:10], vals[10:]
+        estRot,estCov = filt.getRotAndCov(i)
+        estVec = log_R(estRot)
+        sig = np.sqrt(np.cbrt(np.linalg.eig(estCov)[0].prod()))
+        err = np.linalg.norm(estVec - rvec)
+        print('err',err, 'from',estVec, rvec,'sigma',sig)
+        errs.append(err)
+        sigmas.append(sig)
+    plt.plot(errs, color='r', label='err')
+    plt.plot(sigmas, color='y', label='sig')
+    plt.legend()
+    plt.savefig('err_'+filt.name+'.jpg')
+    plt.clf()
+
+
+
 if __name__ == '__main__':
 
     valss,truth = generateSimData_1()
 
     filt = RpyFilter()
-    filterOutputs = [run_filter(filt, valss, truth)]
+    filterOutputs = {filt.name: run_filter(filt, valss, truth)}
 
     writeWebPage(valss, truth, filterOutputs)
