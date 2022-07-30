@@ -2,7 +2,8 @@ import numpy as np, os, sys
 import dominate, dominate.tags as D
 from dominate.util import raw
 import sympy, time, json
-from sympy import symbols, Matrix, cos as cos_, sin as sin_, diff, simplify, pprint, count_ops, cse, Abs, lambdify
+from sympy import symbols, Matrix, cos as cos_, sin as sin_, diff, simplify, pprint, count_ops, cse, Abs
+from sympy.utilities.lambdify import lambdify
 np.set_printoptions(suppress=True)
 from matplotlib import pyplot as plt
 
@@ -145,7 +146,7 @@ def gen_rpy_code(approximate=True):
         Jplus = Jplus.subs(Abs(k1)**2+Abs(k2)**2+Abs(k3)**2, symbols('kn2'))
         Jplus = Jplus.subs((k2)**2+(k1)**2+(k1)**2, symbols('kn2'))
         if approximate:
-            # NOTE: This is an *APPROXIMATION*
+            # NOTE: This makes an *APPROXIMATION*
             #       Assume that all k are small, and therefore k**2 is zero, and so are any ka*kb pair
             for k in k1,k2,k3: Jplus = Jplus.subs(k**2, 0)
             for k in k1,k2,k3: Jplus = Jplus.subs(Abs(k)**2, 0)
@@ -164,10 +165,12 @@ def gen_rpy_code(approximate=True):
         m = Matrix([symbols('m1 m2 m3')])
         # z = Matrix([g,m])
         Rs = Matrix(RPY)
-        fRp = Rs[:,1].T @ g.T
-        Jobs_g = Matrix(diff(fRp, Matrix([r,p,y])))
-        fRp = Rs[:,2].T @ m.T
-        Jobs_m = Matrix(diff(fRp, Matrix([r,p,y])))
+        fRp_g = Rs[:,1].T @ g.T
+        fRp_m = Rs[:,2].T @ m.T
+        # fRp_g = Rs[1,:] @ g.T
+        # fRp_m = Rs[2,:] @ m.T
+        Jobs_g = Matrix(diff(fRp_g, Matrix([r,p,y])))
+        Jobs_m = Matrix(diff(fRp_m, Matrix([r,p,y])))
         # print('Jobs_grav'); pprint(Jobs_g)
         # print('Jobs_mag'); pprint(Jobs_m)
         Jobs = Matrix([[Jobs_g, Jobs_m]])
@@ -186,18 +189,11 @@ GRAVITY = 9.92
 def generateSimData_1(N=100, sigmas=None):
     if sigmas is None: sigmas = np.ones(9)
 
-    # Actually no, its using rot vecs and they don't compose like this
-    # The maneuever is this:
-    #   1) stay still for a little
-    #   2) rotate like a yaw
-    #   3) rotate like a roll in the new system
-    #   4) rotate like a yaw back
-    #   5) rotate like a roll back
-
+    # Note: The R matrices should be f64 even if all else f32
     out = np.zeros((N,13),dtype=np.float32)
-    trueRs = np.zeros((N,3,3),dtype=np.float32)
+    trueRs = np.zeros((N,3,3),dtype=np.float64)
     trueRs[0] = np.eye(3)
-    acc,gyr,mag = [np.zeros(3,dtype=np.float32) for _ in range(3)]
+    acc,gyr,mag = [np.zeros(3,dtype=np.float64) for _ in range(3)]
     rvec = np.zeros(3,dtype=np.float32) + 1e-9
     # speed = .1 / N
     speed = 2 / N
@@ -218,7 +214,7 @@ def generateSimData_1(N=100, sigmas=None):
         R = rodrigues((rvec+new_gyr)*.5)
         rvec = rvec + new_gyr
         # rvec = log_R(R)
-        print(rvec)
+        # print(rvec)
         gyr[:] = new_gyr
         mag[:] = R.T @ (0,0,1)
         acc[:] = R.T @ (0,0,GRAVITY)
@@ -241,49 +237,74 @@ class BaseFilter():
         return rpy_to_R(self.estimates[i]), self.covs[i]
 
 class RpyFilter(BaseFilter):
-    def __init__(self):
-        super().__init__('Rpy')
+    def __init__(self, approx):
+        super().__init__('Rpy' + ('Approx' if approx else ''))
         self.lastTime = 0
-        self.Jplus, self.Jobs = gen_rpy_code()
-        self.Jplus_ = lambdify(symbols('r p y k1 k2 k3 kn2'), self.Jplus, 'numpy')
+        self.Jplus, self.Jobs = gen_rpy_code(approx)
+        self.Jplus_ = lambdify(symbols('r p y k1 k2 k3 kn2'), self.Jplus, 'numpy', cse=True)
+        self.Jobs_ = lambdify(symbols('r p y g1 g2 g3 m1 m2 m3'), self.Jobs, 'numpy', cse=True)
         import inspect
-        print(inspect.getsource(self.Jplus_))
+        # print(' - source:\n', (inspect.getsource(self.Jplus_))
         self.rpy = np.array([1e-9,1e-9,1e-9],dtype=np.float32)
         self.cov = np.eye(3,dtype=np.float32)
 
     def step(self, vals, truth):
-        time, acc, gyr, mag, rvec = vals[0], vals[1:4], vals[4:7], vals[7:10], vals[10:]
-        dt = self.lastTime - time
+        t, acc, gyr, mag, rvec = vals[0], vals[1:4], vals[4:7], vals[7:10], vals[10:]
+        dt = self.lastTime - t
 
+        # ---------------------------------
         # Time Step: spin according to gyro
+        # ---------------------------------
         if 0:
+            # Slow interpreted sympy version
             F = eval_expr(self.Jplus,
                     r=self.rpy[0], p=self.rpy[1], y=self.rpy[2],
-                    k1=gyr[0], k2=gyr[1], k3=gyr[2], kn2=gyr@gyr)
+                    k1=gyr[0], k2=gyr[1], k3=gyr[2], kn2=gyr@gyr).T
         else:
-            F = self.Jplus_(self.rpy[0], self.rpy[1], self.rpy[2], gyr[0], gyr[1], gyr[2], gyr@gyr+1e-9)
+            # Faster sympy->numpy version
+            F = self.Jplus_(self.rpy[0], self.rpy[1], self.rpy[2], gyr[0], gyr[1], gyr[2], gyr@gyr+1e-9).T
 
 
         print('gyr:', gyr)
         print('F:\n',F)
-        self.rpy = matrix_to_rpy(rpy_to_R(self.rpy) @ rodrigues(gyr))
-        # self.rpy = (self.rpy + F @ gyr)
-        # self.rpy = (self.rpy + F @ gyr) % np.pi
-        # self.rpy += (self.rpy @ rodrigues(gyr)) % np.pi
-        self.cov = F @ self.cov @ F.T
+        self.rpy = matrix_to_rpy(rpy_to_R(self.rpy) @ rodrigues(gyr)) % (2. * np.pi)
+        # self.rpy = (self.rpy + F @ gyr) % (2 * np.pi)
+        Q = np.eye(3) * 1e-5 # TODO:
+        self.cov = F @ self.cov @ F.T + Q
+
+        # ---------------------------------
+        # Time Step: observe mag/grav
+        # ---------------------------------
+        if 1:
+            # obs_zplus_res =
+            # obs_zplus_res =
+            R = np.eye(2) * 1e2 # TODO:
+            u_grav = acc / np.linalg.norm(acc)
+            u_mag = mag / np.linalg.norm(mag)
+            H = self.Jobs_(*self.rpy, *u_grav, *u_mag).T
+            y = H @ self.rpy
+            S = H @ self.cov @ H.T + R
+            K = self.cov @ H.T @ np.linalg.inv(S)
+            # dx = (K @ -y) % (2 * np.pi)
+            dx = (K @ y)
+            print('H:\n',H)
+            print('innov:',y)
+            print('K:\n',K)
+            print('dx:',dx)
+            self.rpy = (self.rpy + dx) % (2 * np.pi)
+            self.cov = self.cov - K @ H @ self.cov
+
         print('cov:\n', self.cov)
         print('rpy:', self.rpy)
         print('true R:\n', truth)
         print('pred R:\n', rpy_to_R(self.rpy))
+        # if np.linalg.norm(gyr) > 1e-6: input()
 
-        # Measurement Step: ekf on mag/grav
-        # obs_zplus_res =
-        # obs_zplus_res =
 
         self.estimates.append(np.copy(self.rpy))
         self.covs.append(np.copy(self.cov))
 
-        self.lastTime = time
+        self.lastTime = t
 
 
 ########################################################################################
@@ -293,27 +314,27 @@ class RpyFilter(BaseFilter):
 def writeWebPage(valss, truth, filterOutputs):
     outDir = os.getcwd()
     outHtml = 'ori.html'
+    outJson = 'simAndFilterData.json'
     if 'extraPages' not in outDir: outDir = os.path.join(outDir, 'extraPages')
     if 'ori' not in outDir[-5:]: outDir = os.path.join(outDir, 'ori')
-    outPath = os.path.join(outDir,outHtml)
+    outPathHtml = os.path.join(outDir,outHtml)
+    outPathJson = os.path.join(outDir,outJson)
 
-    with open(outPath, 'w') as fp:
+    # Generate json data and save to file
+    jobj = dict(simData=valss.reshape(-1).tolist(), simDataShape=valss.shape)
+    for i,(name,fo) in enumerate(filterOutputs.items()):
+        pass
+    with open(outPathJson, 'w') as fp:
+        json.dump(jobj, fp)
+
+
+    with open(outPathHtml, 'w') as fp:
         with dominate.document(title='ori') as doc:
-
-            dataScript = D.script(type='text/javascript')
-            dataScript.add(raw('window.simData = new Float32Array([{}])'.format( \
-                    ','.join(('{:.5g}'.format(s) for s in valss.reshape(-1))) )))
-
-            filtMap = {}
-            for i,(name,fo) in enumerate(filterOutputs.items()):
-                pass
-                #filtMap[name] = fo
-            doc.head.add(raw('window.filterData = ' + json.dumps(filtMap)))
-
-            doc.head.add(D.script(type='text/javascript', src='runOri.js'))
+            doc.body.add(D.script(type='text/javascript', src='runOri.bundled.js'))
 
             fp.write(doc.render())
-    print(' - wrote',outPath)
+    print(' - wrote',outPathHtml)
+    print(' - wrote',outPathJson)
 
 def run_filter(filt, valss, truth):
     for i, vals in enumerate(valss):
@@ -331,7 +352,7 @@ def run_filter(filt, valss, truth):
         estVec = log_R(estRot)
         sig = np.sqrt(np.cbrt(np.linalg.eig(estCov)[0].prod()))
         err = np.linalg.norm(estVec - rvec)
-        print('err',err, 'from',estVec, rvec,'sigma',sig)
+        if i % 10 == 0: print('err',err, 'from',estVec, rvec,'sigma',sig)
         errs.append(err)
         sigmas.append(sig)
     plt.plot(errs, color='r', label='err')
@@ -346,7 +367,10 @@ if __name__ == '__main__':
 
     valss,truth = generateSimData_1()
 
-    filt = RpyFilter()
-    filterOutputs = {filt.name: run_filter(filt, valss, truth)}
+    filterOutputs = {}
+    filt = RpyFilter(True)
+    filterOutputs[filt.name] = run_filter(filt, valss, truth)
+    # filt = RpyFilter(True)
+    # filterOutputs[filt.name] = run_filter(filt, valss, truth)
 
-    writeWebPage(valss, truth, filterOutputs)
+    # writeWebPage(valss, truth, filterOutputs)

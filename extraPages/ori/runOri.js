@@ -2,14 +2,23 @@ const regl = require('regl')()
 const mat4 = require('gl-mat4')
 
 /*
-function hello() {
-	console.log(`array has ${window.simData.length} entries`)
+ * Retrieve data from simAndFilterData.json
+ * This contains the simulation ground truth data, as well as filter outputs.
+ */
+function handleDataJson(data) {
+	console.log(' - Received data', data)
 }
+async function queueLoadJsonData() {
+	console.log(' - Fetching Json Data')
+	let res = await fetch('simAndFilterData.json',
+		{
+			// credentials: 'same-origin'
+		})
+	let data = await res.json()
+	handleDataJson(data)
+}
+queueLoadJsonData();
 
-window.onload = () => {
-	hello()
-}
-*/
 
 function multiplyMatVec(out, m, v) {
 	// for (let i=0; i<3; i++) out[i] = m[i*4+3];
@@ -370,21 +379,19 @@ function drawAngleTriple(mvp, model, angles, colors) {
 	}
 }
 
-let worldFromPlatform = new Float32Array([
-	1, 0, 0, 0,
-	0, 0, -1, 0,
-	0, 1, 0, 0,
-	0, 0, 0, 1 ])
 
-let g_trailMeta = {
-	idx: 0,
-	total: 0,
-	trailBuffer: regl.buffer({
-		usage: 'dynamic',
-		data: new Float32Array(TRAIL_N*4),
-		type: 'float32'
-	})}
+function genTrailMeta() {
+	return {
+		idx: 0,
+		total: 0,
+		trailBuffer: regl.buffer({
+			usage: 'dynamic',
+			data: new Float32Array(TRAIL_N*4),
+			type: 'float32'
+		})}
+}
 
+/*
 function Compartment(vport) {
 	this.viewport = vport
 	this.trailMeta = {
@@ -434,9 +441,6 @@ Compartment.prototype.render = function(ctx, view) {
 
 }
 let comp1 = new Compartment()
-	// viewport: regl.context('vport'),
-	// viewport: regl.prop('vport')
-	// context: { viewport: vport1 },
 
 let it = regl.frame((ctx) => {
 
@@ -448,4 +452,67 @@ let it = regl.frame((ctx) => {
 	comp1.render(ctx, view)
 
 	// it.cancel()
+})
+*/
+
+function Compartment(vport, off) {
+	this.viewport = vport
+	this.trailMeta = genTrailMeta()
+
+	this.worldFromPlatform = new Float32Array([
+		1, 0, 0, 0,
+		0, 0, -1, 0,
+		0, 1, 0, 0,
+		off[0], off[1], off[2], 1 ])
+}
+Compartment.prototype.draw = regl({
+	context: {
+		hello: 1
+	}
+})
+function renderCompartment(c, props) {
+	c.draw({}, function(ctx) {
+
+		let w = ctx.viewportWidth, h = ctx.viewportHeight;
+		// let w = ctx.viewportWidth*this.viewport.w, h = ctx.viewportHeight*this.viewport.h;
+		// console.log(this.viewport.w, this.viewport.h)
+
+		let proj = mat4.create()
+		let zn = .0001
+		let f = .3
+		mat4.frustum(proj, -f*zn*w/h, f*zn*w/h, -f*zn, f*zn, zn, 50)
+
+		let view = mat4.create()
+		// Start South and Up, XYZ ~ ESU
+		mat4.lookAt(view, [0,-9,-4.0], [0,0,0], [0,0,-1])
+
+		let model = mat4.create()
+		mat4.multiply(view, view, c.worldFromPlatform);
+		let mvp = mat4.create()
+		mat4.multiply(mvp, proj, view);
+
+		let time = ctx.time
+		let t = time * 5.
+		let angles = [
+			Math.sin(t*.979)+Math.cos(t*.1),
+			.8*Math.sin(t*.633)*Math.cos(t*.7),
+			t
+		]
+
+		let colors = [  [0,0,1,.5],
+						[0,1,0,.5],
+						[1,0,0,.5]]
+
+		// drawAngleSingle(mvp, angle1, [.2,.2,1,.2])
+		drawAngleTriple(mvp, model, angles.map(a=>a%(2*Math.PI)), colors)
+
+		renderPlaneAndTrail(mvp, model, time, c.trailMeta)
+	})
+}
+let comp1 = new Compartment({}, [0,0,0])
+let comp2 = new Compartment({}, [3,0,0])
+let it = regl.frame((ctx) => {
+	regl.clear({color:[0,0,0,1], depth:1})
+	renderCompartment(comp1, {})
+	renderCompartment(comp2, {})
 })
