@@ -13,3 +13,6 @@
 			- Think of it like this: if your EKF has 3 states and you have one measurement function with 2 observable quantities, then your `H` matrix is 2x3 and your `R` matrix is 2x2.
 			- In the Implicit EKF, `R` is the state size (3x3). This is kind of a generalization, because you could think of the original `R` being 3x3 but with rank 2.
 			- In fact the `R` matrix could have rank 2, as long as `HPH'` spans the missing subspace, since `S = HPH' + R`
+			- The `R` matrix is the inverse Hessian! TODO: Explain from a NLLS/GN viewpoint
+
+	- Scrap the ekf update step :: just formulate as GN step...

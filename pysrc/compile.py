@@ -141,6 +141,23 @@ def parseMarkdownToHtml(title, lines):
                     fcode = fcode.replace('\n\n','\n')
                     D.div(dominate.util.raw(fcode), _class='code')
 
+                # Begin math block
+                elif sline[:2] == '$$' or sline[:2] == '\[':
+                    language = sline[3:]
+                    math = '\['
+                    while True:
+                        i += 1
+                        if i >= len(lines): break
+                        line = lines[i]
+                        sline = line.strip()
+                        if sline[:2] == '$$' or sline[:2] == '\]':
+                            math += '\]'
+                            i += 1
+                            break
+                        else: math += '\n' + line
+                    fmath = math.replace('\n\n','\n')
+                    D.div(dominate.util.raw(fmath), _class='math')
+
                 # Begin paragraph
                 else:
                     # lst = processLine(line)

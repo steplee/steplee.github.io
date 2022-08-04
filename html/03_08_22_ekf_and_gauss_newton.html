@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Ekf And Gauss Newton</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"> <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jura&family=Roboto:wght@400&display=swap" rel="stylesheet">
+
+    <link href="../res/main.css" rel="stylesheet">
+    <link href="../res/boostrap.darkly.css" rel="stylesheet">
+    <link href="../res/pygments.css" rel="stylesheet">
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6" type="text/javascript"></script>
+    <script async="async" id="MathJax-script" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js" type="text/javascript"></script>
+  </head>
+  <body>
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+  <div class="container-fluid">
+    <a class="navbar-brand" href="#">Navbar</a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarColor02" aria-controls="navbarColor02" aria-expanded="false" aria-label="Toggle navigation">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+
+    <div class="collapse navbar-collapse" id="navbarColor02">
+      <ul class="navbar-nav me-auto">
+        <li class="nav-item">
+          <a class="nav-link active" href="../index.html">Blog
+            <span class="visually-hidden">(current)</span>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="https://github.com/steplee">GitHub</a>
+        </li>
+
+        <!-- This is not working -->
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" data-bs-toggle="dropdown" href="#" role="button" aria-haspopup="true" aria-expanded="false" id="dropdownMenuButton1" data-toggle="dropdown1">Links</a>
+          <div class="dropdown-menu" aria-labelledby="dropdownMenuButton1" id="dropdown1">
+            <a class="dropdown-item" href="https://www.shadertoy.com/user/stephenl7797">ShaderToy</a>
+            <a class="dropdown-item" href="https://www.shadertoy.com/user/stephenl7797">ShaderToy</a>
+          </div>
+        </li>
+
+      </ul>
+    </div>
+  </div>
+</nav>
+    
+<div  id="mainImage"></div>
+
+    <div class="container">
+      <h1>
+        <span>Relationship Between the EKF and Gauss-Newton Method</span>
+      </h1>
+      <p>
+        <span>It's no secret that the EKF is related to Gauss-Newton optimization. They are both used to solve non-linear least-squares problems. Typically Kalman Filters are used in state-estimation problems where there is a time aspect. Gauss-Newton is more popular in static optimization problems like bundle adjustment and function fitting. There are academic papers exploring comparing the two, but I want to write a post to try and build more intuition. Both EKF and GN can be derived from first principles using the </span>
+        <a href="https://en.wikipedia.org/wiki/Woodbury_matrix_identity">Matrix Inversion Lemma</a>
+        <span>, but that is a little impractical.
+</span>
+      </p>
+      <p>
+        <span>The Information Filter is similar to the Kalman Filter and very similar to GN. In the KF, the state is the covariance matrix and the mean vector (the parameters of a Gaussian in </span>
+        <span class="backticked">moment</span>
+        <span> form). In the Information Filter, the state is the inverse-covariance matrix and the 'information vector' (the parameters of a Gaussian in </span>
+        <span class="backticked">natural</span>
+        <span> form).
+</span>
+      </p>
+      <p>
+        <span>Going between these representations requires a matrix inverse operation, which is </span>
+        <span class="backticked">O(n^3)</span>
+        <span>. So chances are you'd like to avoid doing it often (it also loses a lot of precision which may be another concern).
+</span>
+      </p>
+      <p>
+        <span>Back to the optimization terminology, it turns out the inverse covariance \(P^{-1}\) is *almost* the Hessian \(\Lambda\) evaluated at the current estimate. You just need to propagate the covariance along, by just adding \( P^{-1}\) into \(\Lambda\).
+</span>
+      </p>
+      <p>
+        <span>Everything then falls into place and you can see the duality of the two representations.
+</span>
+      </p>
+      <ul>
+        <li>
+          <span> Marginalization is &quot;easy&quot; in the EKF, but conditioning (the update step) requires inverting the \(S\) matrix.
+</span>
+        </li>
+        <li>
+          <span> Conditioning is &quot;easy&quot; in EIF/Gauss-Newton because you just add an outer-product to the Hessian and the \(J^T \cdot residual\) term to the information vector, but marginalization requires inverting the Hessian \(\Lambda\).
+</span>
+        </li>
+      </ul>
+      <p>
+        <span>There is no free lunch -- you can't just keep making measurments/conditioning in IEF/Gauss-Newton, because you need the next mean vector in order to evaluate a new Hessian!
+</span>
+      </p>
+      <p>
+        <span>Coming back to Earth, sometimes it is easier for me to reason about the measurement step in GN than in the EKF formulation. It's easier to replace the measurement step while keeping the standard time step.
+</span>
+      </p>
+      <h6>
+        <span>EKF Step</span>
+      </h6>
+      <div class="math">\[
+x_1 = x_0 + PH^T(HPH^T+R)^{-1} \cdot \hat{y}
+\]</div>
+      <h6>
+        <span>GN Step</span>
+      </h6>
+      <div class="math">\[
+x_1 = x_0 + (J^T\Lambda J + P^{-1})^{-1}J^T \cdot \hat{y}
+\]</div>
+      <p>
+        <span>TODO: Finish
+</span>
+      </p>
+    </div>
+  </body>
+</html>

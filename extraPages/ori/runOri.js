@@ -1,12 +1,17 @@
 const regl = require('regl')()
 const mat4 = require('gl-mat4')
 
+// ----------------------------------------
+//      JSON Data Retrieval
+// ----------------------------------------
+
 /*
  * Retrieve data from simAndFilterData.json
  * This contains the simulation ground truth data, as well as filter outputs.
  */
 function handleDataJson(data) {
 	console.log(' - Received data', data)
+	setupSceneWithData(data)
 }
 async function queueLoadJsonData() {
 	console.log(' - Fetching Json Data')
@@ -17,8 +22,79 @@ async function queueLoadJsonData() {
 	let data = await res.json()
 	handleDataJson(data)
 }
-queueLoadJsonData();
 
+
+// ----------------------------------------
+//      Mouse Input & Camera class
+// ----------------------------------------
+
+document.myMouse = {
+	dx: 0, dy: 0,
+	lastTime: 0,
+	leftClicked: false,
+	rightClicked: false,
+}
+function handleMouseMovement(e) {
+	document.myMouse.dx = e.movementX;
+	document.myMouse.dy = e.movementY;
+}
+function handleMouseDown(e) {
+	if (e.button == 0) document.myMouse.leftClicked = true
+	if (e.button == 1) document.myMouse.rightClicked = true
+}
+function handleMouseUp(e) {
+	if (e.button == 0) document.myMouse.leftClicked = false
+	if (e.button == 1) document.myMouse.rightClicked = false
+}
+document.addEventListener('mousemove', handleMouseMovement);
+document.addEventListener('mousedown', handleMouseDown);
+document.addEventListener('mouseup', handleMouseUp);
+
+class CameraViewOnly {
+	constructor() {
+		this.eye = [0,-9,-4]
+		this.target = [0,0,0]
+		this.up = [0,0,-1]
+		this.eyeDist = norm(this.eye)
+	}
+
+	stepAndComputeView() {
+
+		let dx = document.myMouse.dx, dy = document.myMouse.dy
+		let leftDown = document.myMouse.leftClicked
+		if (leftDown && ((dx != 0) || (dy != 0))) {
+			const e = this.eye
+
+			// You should apply rodrigues formula, but since dx and dy are small,
+			// treat as infitisemal and renormalize at end
+			//
+			// Note: the 'yaw' must be done along current X+, which is the longer expression
+			// Note: axes are sort of messed up, have not yet applied worldFromPlatform
+			let add_dx = cross(e, [0, 0, dx*.01])
+			let add_dy = cross(e, cross([e[0]*dy*.01/this.eyeDist, e[1]*dy*.01/this.eyeDist, e[2]*dy*.01/this.eyeDist], this.up))
+			let newEye = [
+				e[0] + add_dx[0] + add_dy[0],
+				e[1] + add_dx[1] + add_dy[1],
+				e[2] + add_dx[2] + add_dy[2]]
+			let n = norm(newEye)
+			this.eye = [ newEye[0]/n * this.eyeDist, newEye[1]/n * this.eyeDist, newEye[2]/n * this.eyeDist]
+		}
+
+		let view = mat4.create()
+		mat4.lookAt(view, this.eye, this.target, this.up)
+
+		document.myMouse.dx = 0
+		document.myMouse.dy = 0
+
+		return view
+	}
+}
+document.myCamera = new CameraViewOnly()
+
+
+// ----------------------------------------
+//      Math Functions
+// ----------------------------------------
 
 function multiplyMatVec(out, m, v) {
 	// for (let i=0; i<3; i++) out[i] = m[i*4+3];
@@ -31,19 +107,9 @@ function multiplyMatVec(out, m, v) {
 	}
 }
 
-let normalBlend = {
-		enable: true,
-		func: {
-			srcRGB: 'src alpha',
-			srcAlpha: 1,
-			dstRGB: 'one minus src alpha',
-			dstAlpha: 1
-		},
-		equation: {
-			rgb: 'add',
-			alpha: 'add'
-		},
-	}
+function norm(x) {
+	return Math.sqrt(x[0]*x[0] + x[1]*x[1] + x[2]*x[2]);
+}
 
 function getYaw(a) {
 	return new Float32Array([
@@ -73,6 +139,24 @@ function cross(a,b) {
 		-a[1]*b[0] + a[0]*b[1]];
 }
 
+// ----------------------------------------
+//      Geometry & Graphics Utilities
+// ----------------------------------------
+
+let normalBlend = {
+		enable: true,
+		func: {
+			srcRGB: 'src alpha',
+			srcAlpha: 1,
+			dstRGB: 'one minus src alpha',
+			dstAlpha: 1
+		},
+		equation: {
+			rgb: 'add',
+			alpha: 'add'
+		},
+	}
+
 function make_plane() {
 	let offset = [0,0,0];
 	// let offset = [0,0,1];
@@ -84,8 +168,10 @@ function make_plane() {
 		1, 0, 0,
 		0,0,0,
 		-.5,0,.4,
-		.5,0,.4].map((x,i) => x + offset[Math.floor(i%3)])
-	let inds = [
+		.5,0,.4]
+		.map((x,i) => x + offset[Math.floor(i%3)])
+		.map((x,i) => (i%3) == 1 ? -x : x) // whoops, had to flip
+	let inds_ = [
 		// bottom
 		0,5,4,
 		6,0,4,
@@ -98,6 +184,10 @@ function make_plane() {
 		4,1,3,
 		5,1,2,
 		1,6,3 ];
+
+	// let inds = inds_
+	let inds = inds_.map((x,i) => (i%3==0)?inds_[i+1]:(i%3==1)?inds_[i-1]:x) // whoops
+
 	let normals = new Float32Array(verts.length)
 	for (var i=0; i<inds.length/3; i++) {
 		let ia = inds[i*3+0];
@@ -150,6 +240,45 @@ function make_sector() {
 	return [new Float32Array(verts), new Uint16Array(inds)];
 }
 
+const drawGizmo = regl({
+	frag: `
+	precision mediump float;
+	varying vec3 v_color;
+	void main() {
+		vec4 c = vec4(v_color, .5);
+		gl_FragColor = c;
+	}`,
+
+	vert: `
+	precision mediump float;
+	uniform mat4 mvp;
+	attribute vec3 color;
+	attribute vec3 position;
+	varying vec3 v_color;
+	void main() {
+		vec4 p = mvp * vec4(position.xyz, 1.0);
+		gl_Position = p;
+		v_color = color;
+	}`,
+	attributes: { position: [
+		// [0,0,0], [1,0,0],
+		// [0,0,0], [0,1,0],
+		// [0,0,0], [0,0,1] ],
+		[1,0,0], [2,0,0],
+		[0,1,0], [0,2,0],
+		[0,0,1], [0,0,2] ],
+	color: [
+		[1,0,0], [1,0,0],
+		[0,1,0], [0,1,0],
+		[0,0,1], [0,0,1] ] },
+	uniforms: { mvp: regl.prop('mvp') },
+
+	offset: 0,
+	primitive: 'lines',
+	count: 6,
+	blend: normalBlend
+})
+
 let [plane_v,plane_i, plane_n, planeTipPos] = make_plane()
 const drawPlane = regl({
 	frag: `
@@ -194,7 +323,7 @@ const drawPlane = regl({
 
 	cull: {enable: true},
 	// cull: {enable: true},
-	// frontFace: 'cw',
+	// frontFace: 'ccw',
 	blend: normalBlend
 })
 
@@ -227,7 +356,7 @@ let drawTrail = regl({
 		// v_color.rgba *= time;
 	}`,
 	attributes: { position_t: regl.prop('trailBuffer') },
-	uniforms: { mvp: regl.prop('mvp'), color: regl.prop('color'), time: function(c) { return c.time*.1 } },
+	uniforms: { mvp: regl.prop('mvp'), color: regl.prop('color'), time: regl.prop('time') },
 
 	offset: regl.prop('offset'),
 	primitive: 'line strip',
@@ -235,29 +364,36 @@ let drawTrail = regl({
 	cull: {enable: false},
 	blend: normalBlend
 })
-function renderPlaneAndTrail(mvp, model, time, trailMeta) {
+function renderPlaneAndTrail(mvp, model, time_, trailMeta, pushTrail) {
 	let planeMvp = mat4.create();
 	mat4.multiply(planeMvp, mvp, model);
 	drawPlane({ mvp: planeMvp, color: [ 1,1,1,.7] })
 
+	let time = time_ * .1
 
-	let tip = new Float32Array(4)
-	multiplyMatVec(tip, model, planeTipPos)
-	tip[3] = time * .1
 
-	// let tip = [Math.cos(trail.idx/1000), Math.sin(trail.idx/1000), 0]
-	trailMeta.trailBuffer.subdata(tip, trailMeta.idx*4*4)
+	if (pushTrail) {
+		let tip = new Float32Array(4)
+		multiplyMatVec(tip, model, planeTipPos)
+		tip[3] = time
+
+		// let tip = [Math.cos(trail.idx/1000), Math.sin(trail.idx/1000), 0]
+		trailMeta.trailBuffer.subdata(tip, trailMeta.idx*4*4)
+	}
+
 	// Render [0, i]
-	drawTrail({ mvp: mvp, color: [ 1,1,1,.7], offset: 0, count: trailMeta.idx, trailBuffer: trailMeta.trailBuffer })
+	drawTrail({ mvp: mvp, color: [ 1,1,1,.7], offset: 0, count: trailMeta.idx, trailBuffer: trailMeta.trailBuffer, time:time })
 	// Render [i+1, n]
 	if (trailMeta.total > trailMeta.idx) {
-		drawTrail({ mvp: mvp, color: [ 1,1,1,.7], offset: trailMeta.idx+1, count: (trailMeta.total-trailMeta.idx-1), trailBuffer: trailMeta.trailBuffer})
+		drawTrail({ mvp: mvp, color: [ 1,1,1,.7], offset: trailMeta.idx+1, count: (trailMeta.total-trailMeta.idx-1), trailBuffer: trailMeta.trailBuffer, time:time})
 		// console.log(' - render', 0, '->', trailMeta.idx, 'AND', trailMeta.idx, '->', trailMeta.total)
 	}
 
-	trailMeta.idx = trailMeta.idx + 1
-	if (trailMeta.idx >= TRAIL_N) trailMeta.idx = 0
-	if (trailMeta.total < TRAIL_N) trailMeta.total += 1
+	if (pushTrail) {
+		trailMeta.idx = trailMeta.idx + 1
+		if (trailMeta.idx >= TRAIL_N) trailMeta.idx = 0
+		if (trailMeta.total < TRAIL_N) trailMeta.total += 1
+	}
 
 }
 
@@ -338,7 +474,7 @@ function drawAngleTriple(mvp, model, angles, colors) {
 	// Note: column-major
 	// this could be done better by swizzling the pos in the shader...
 	let modelMatrices = [
-		 // Yaw
+		 // Roll
 		 new Float32Array([
 			 1,0,0,0,
 			 0,1,0,0,
@@ -350,10 +486,10 @@ function drawAngleTriple(mvp, model, angles, colors) {
 			 0,0,1,0,
 			 0,0,0,0,
 			 0,0,0,1]),
-		 // Roll
+		 // Yaw
 		 new Float32Array([
-			 1,0,0,0,
 			 0,0,1,0,
+			 -1,0,0,0,
 			 0,0,0,0,
 			 0,0,0,1]),
 	]
@@ -391,86 +527,24 @@ function genTrailMeta() {
 		})}
 }
 
-/*
-function Compartment(vport) {
-	this.viewport = vport
-	this.trailMeta = {
-		idx: 0,
-		total: 0,
-		trailBuffer: regl.buffer({
-			usage: 'dynamic',
-			data: new Float32Array(TRAIL_N*4),
-			type: 'float32'
-		})}
-}
+const worldFromPlatform = new Float32Array([
+	-1, 0, 0, 0,
+	0, 0, 1, 0,
+	0, 1, 0, 0,
+	// off[0], off[1], off[2], 1 ])
+	0,0,0,1])
 
-// I think this could be a scoped command, but easier
-// to just use a js func
-Compartment.prototype.render = function(ctx, view) {
-	let w = ctx.viewportWidth, h = ctx.viewportHeight;
-	// let w = ctx.viewportWidth*this.viewport.w, h = ctx.viewportHeight*this.viewport.h;
-	// console.log(this.viewport.w, this.viewport.h)
-
-	console.log(w,h)
-	let proj = mat4.create()
-	let zn = .0001
-	let f = .3
-	mat4.frustum(proj, -f*zn*w/h, f*zn*w/h, -f*zn, f*zn, zn, 50)
-
-	let model = mat4.create()
-	mat4.multiply(view, view, worldFromPlatform);
-	let mvp = mat4.create()
-	mat4.multiply(mvp, proj, view);
-
-	let time = ctx.time
-	let t = time * 5.
-	let angles = [
-		Math.sin(t*.979),
-		.8*Math.sin(t*.633),
-		t
-	]
-
-	let colors = [  [0,0,1,.5],
-					[0,1,0,.5],
-					[1,0,0,.5]]
-
-	// drawAngleSingle(mvp, angle1, [.2,.2,1,.2])
-	drawAngleTriple(mvp, model, angles.map(a=>a%(2*Math.PI)), colors)
-
-	renderPlaneAndTrail(mvp, model, time, g_trailMeta)
-
-}
-let comp1 = new Compartment()
-
-let it = regl.frame((ctx) => {
-
-	regl.clear({color:[0,0,0,1], depth:1})
-
-	let view = mat4.create()
-	// Start South and Up, XYZ ~ ESU
-	mat4.lookAt(view, [0,-9,-4.0], [0,0,0], [0,0,-1])
-	comp1.render(ctx, view)
-
-	// it.cancel()
-})
-*/
-
-function Compartment(vport, off) {
-	this.viewport = vport
+function Compartment(vport, name) {
+	this.vport = vport
 	this.trailMeta = genTrailMeta()
-
-	this.worldFromPlatform = new Float32Array([
-		1, 0, 0, 0,
-		0, 0, -1, 0,
-		0, 1, 0, 0,
-		off[0], off[1], off[2], 1 ])
+	this.name = name
 }
 Compartment.prototype.draw = regl({
 	context: {
 		hello: 1
 	}
 })
-function renderCompartment(c, props) {
+function renderCompartment(c, view, angles, pushTrail=true) {
 	c.draw({}, function(ctx) {
 
 		let w = ctx.viewportWidth, h = ctx.viewportHeight;
@@ -478,41 +552,133 @@ function renderCompartment(c, props) {
 		// console.log(this.viewport.w, this.viewport.h)
 
 		let proj = mat4.create()
-		let zn = .0001
+		let zn = .003
 		let f = .3
-		mat4.frustum(proj, -f*zn*w/h, f*zn*w/h, -f*zn, f*zn, zn, 50)
+		// mat4.frustum(proj, -f*zn*w/h, f*zn*w/h, -f*zn, f*zn, zn, 50)
+		// mat4.frustum(proj, -f*zn*w/h, f*zn*w/h, -f*zn, f*zn, zn, 50)
+		let x0 = (f*zn*w/h * (-1 + c.vport[0])) * c.vport[2];
+		let x1 = (f*zn*w/h * ( 1 + c.vport[0])) * c.vport[2];
+		let y0 = (f*zn     * (-1 + c.vport[1])) * c.vport[3];
+		let y1 = (f*zn     * ( 1 + c.vport[1])) * c.vport[3];
+		mat4.frustum(proj, x0,x1, y0,y1, zn, 20)
 
-		let view = mat4.create()
-		// Start South and Up, XYZ ~ ESU
-		mat4.lookAt(view, [0,-9,-4.0], [0,0,0], [0,0,-1])
 
 		let model = mat4.create()
-		mat4.multiply(view, view, c.worldFromPlatform);
 		let mvp = mat4.create()
 		mat4.multiply(mvp, proj, view);
 
-		let time = ctx.time
-		let t = time * 5.
-		let angles = [
-			Math.sin(t*.979)+Math.cos(t*.1),
-			.8*Math.sin(t*.633)*Math.cos(t*.7),
-			t
-		]
+		drawGizmo({mvp:mvp})
 
-		let colors = [  [0,0,1,.5],
-						[0,1,0,.5],
-						[1,0,0,.5]]
+		let rpyColors = [[0,0,1,.5],
+						 [1,0,0,.5],
+						 [0,1,0,.5]]
 
 		// drawAngleSingle(mvp, angle1, [.2,.2,1,.2])
-		drawAngleTriple(mvp, model, angles.map(a=>a%(2*Math.PI)), colors)
+		drawAngleTriple(mvp, model, angles.map(a=>a%(2*Math.PI)), rpyColors)
 
-		renderPlaneAndTrail(mvp, model, time, c.trailMeta)
+		let time = ctx.time
+		renderPlaneAndTrail(mvp, model, time, c.trailMeta, pushTrail)
 	})
 }
-let comp1 = new Compartment({}, [0,0,0])
-let comp2 = new Compartment({}, [3,0,0])
-let it = regl.frame((ctx) => {
-	regl.clear({color:[0,0,0,1], depth:1})
-	renderCompartment(comp1, {})
-	renderCompartment(comp2, {})
-})
+
+
+function setupSceneTest() {
+	let comp1 = new Compartment([-.43,0,1.,1.], [0,0,0])
+	let comp2 = new Compartment([.43,0,1.,1.], [0,0,0])
+	let it = regl.frame((ctx) => {
+
+		regl.clear({color:[0,0,0,1], depth:1});
+
+		/*
+			let view = mat4.create()
+		let tt = Math.sin(ctx.time) * .3
+		// Start South and Up, XYZ ~ ESU
+		// mat4.lookAt(view, [0,-9,-4.0], [0,0,0], [0,0,-1])
+		mat4.lookAt(view, [-9*Math.sin(tt),-9*Math.cos(tt),-4.0], [0,0,0], [0,0,-1])
+		mat4.multiply(view, view, worldFromPlatform);
+		*/
+
+		let view = document.myCamera.stepAndComputeView();
+		mat4.multiply(view, view, worldFromPlatform);
+
+
+		let time = ctx.time;
+		var t = time * 2.;
+		var angles = [ Math.sin(t*.979)+Math.cos(t*.1), .8*Math.sin(t*.633)*Math.cos(t*.7), t ];
+
+		renderCompartment(comp1, view, angles);
+
+		t = time * 5.;
+		angles = [ 0,t*.2, t ];
+
+		renderCompartment(comp2, view, angles, pushTrail=j!=last_j);
+		last_j = j
+	})
+}
+
+class PlaybackScene {
+
+	constructor(data) {
+		this.data = data
+
+		let trueComp = new Compartment([0,0,1,1], "");
+		let filterComp = new Compartment([0,0,1,1], "RpyFilter");
+		// let filterComps = [];
+
+		let last_j = -1
+		let n = data['outputs']['RpyApprox']['rpysShape'][0]
+
+		let it = regl.frame((ctx) => {
+			regl.clear({color:[0,0,0,1], depth:1});
+
+			let view = document.myCamera.stepAndComputeView();
+			mat4.multiply(view, view, worldFromPlatform);
+
+			let time = ctx.time;
+			var t = time * 2.;
+
+			const TIME_SCALE = 60;
+			let j = Math.round(Math.min(time * TIME_SCALE, n-1))
+
+			let angles1 = data['outputs']['RpyApprox']['rpys'][j]
+			renderCompartment(filterComp, view, angles1, j!=last_j);
+
+			let angles2 = data['simRpys'][j];
+			renderCompartment(trueComp, view, angles2, j!=last_j);
+			if (j != last_j) {
+				let dx = (angles1[0] - angles2[0]); dx = 2*Math.PI-dx < dx ? 2*Math.PI-dx : dx
+				let dy = (angles1[1] - angles2[1]); dy = 2*Math.PI-dy < dy ? 2*Math.PI-dy : dy
+				let dz = (angles1[2] - angles2[2]); dz = 2*Math.PI-dz < dz ? 2*Math.PI-dz : dz
+				console.log(' - rpy error', Math.sqrt(dx*dx+dy*dy+dz*dz))
+			}
+
+			last_j = j
+		});
+	}
+
+	run() {
+	}
+}
+
+function setupSceneWithData(data) {
+	// Create two components for each filter,
+	// one displaying the truth, one the filter output
+
+	var lastTime = 0;
+
+	console.log(data)
+	for (const [filterName,vals] of Object.entries(data['outputs'])) {
+		for (const [valName,valData] of Object.entries(vals)) {
+			console.log(` - Filter "${filterName}" has values named "${valName}"`)
+		}
+	}
+
+	window.scene = new PlaybackScene(data);
+	window.scene.run();
+
+}
+
+//setupSceneTest()
+
+// Call the load, which eventually sets up scene using setupSceneWithData
+queueLoadJsonData();
