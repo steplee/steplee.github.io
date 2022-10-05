@@ -165,12 +165,22 @@ def jacobian(func, inputs, create_graph=False, strict=False):
 
     return _tuple_postprocess(jacobian, (is_outputs_tuple, is_inputs_tuple))
 
+# Project one pt into one image
 def mapProject1(pose, pt):
     q,t = pose[:4], pose[4:]
 
     tpt = q_to_matrix1(q).T @ (pt - t)
     # tpt = q_to_matrix(q.view(1,4))[0] @ (pt - t)
     return tpt[:2] / tpt[2]
+
+# Project N pt into one image
+def mapProject2(pose, pts):
+    q,t = pose[...,:4], pose[...,4:]
+
+    # print(q_to_matrix1(q).T.shape,pts.shape, (pts-t.view(1,3)).T.shape)
+    # tpts = (q_to_matrix1(q).T @ (pts - t.view(1,3)).T).T
+    tpts = (pts-t.view(-1,3)) @ q_to_matrix1(q)
+    return tpts[...,:2] / tpts[...,2:]
 
 def get_functorch_jac(test=False):
     from functorch import jacfwd, vmap
@@ -204,6 +214,34 @@ def get_functorch_jac(test=False):
     # print([d.shape for d in d])
     return m2, d_m2
 
+#
+# mapProject1 :: (H,7) x (H,3) -> (H,2)
+#
+#   mapProject2 :: (7)   x (H,3)   -> (H,2)
+# v_mapProject2 :: (C,7) x (C,H,3) -> (C,H,2)
+#
+# (C,7) x (C,H,3) -> (C,H,2)
+#
+#
+def get_functorch_jac_2():
+    from functorch import jacfwd, vmap
+    from functorch.compile import aot_function, memory_efficient_fusion, ts_compile
+
+    # Each camera projects the SAME number of points
+
+    # m2 = vmap(vmap(mapProject2, (None,0)), (0,None))
+    m2 = vmap(mapProject2, (0,0))
+    # d_m2 = vmap(vmap(jacfwd(mapProject1, (0,1)), (None,0)), (0,None))
+    # d_m2 = vmap(jacfwd(mapProject2, (0,1)), (0,0), out_dims=(0,1))
+    # d_m2 = vmap(jacfwd(mapProject2, (0,1)), (0,0)) # correct, but only for poses
+    # d_m2 = vmap(jacfwd(mapProject2, (0,1)), (0,0))
+    # d_m2 = jacfwd(vmap(mapProject2, (0,0)), (0,1))
+    # d_m2 = vmap(vmap(jacfwd(mapProject2, (0,1)), (None,0)), (0,None))
+
+    d_m2 = vmap(jacfwd(mapProject2, (0,1)), (0,0))
+
+    return m2, d_m2
+
 
 
 def do_sparse():
@@ -232,17 +270,20 @@ def do_sparse():
     print(H.to_dense())
     '''
 
-    nposes, npts = 3,5
-    nposes, npts = 10,100
+    nposes, npts = 2,5
+    nobs = 3
+    # nposes, npts = 10,100
 
     print('')
     nstates = nposes*7 + npts*3
     pts, truePoses, predPoses, observations = generate_data(nposes,npts)
+    # observations = observations[...,:nobs, :]
 
     idxPose = lambda i,j: 7*i + j
     idxPt   = lambda i,j: 7*nposes + 3*i + j
 
     ftMap, ftDMap = get_functorch_jac()
+    ftMap2, ftDMap2 = get_functorch_jac_2()
 
     for iter in range(4):
         t0 = time.time()
@@ -289,28 +330,12 @@ def do_sparse():
             mse = torch.stack(res).norm(dim=-1).mean()
             printElapsed(accTime, 'JacobianCalc')
         else:
-            res = ftMap(predPoses, pts) - observations
-            mse = res.norm(dim=-1).mean()
-            res = [res.reshape(-1)]
-            js = ftDMap(predPoses,pts)
 
-            # WARNING: WHY???????????????????????????????????????????????????????????????
-            # js[0][...,:4] *= -1
-            # print(' - *** JS ***', [j.shape for j in js])
+            print(' *******************************************')
+            print(' This mode is not supported in this file, see ba2.py')
+            print(' *******************************************')
+            assert False
 
-            for posei in range(nposes):
-                for pti in range(npts):
-                    J_pose = js[0][posei,pti]
-                    J_pt = js[1][posei,pti]
-                    # if posei == 0 and pti == 0: print('here',J_pose,'\n',J_pt)
-                    for ri in range(2):
-                        for k in range(7):
-                            ind.append((resCnt+ri, idxPose(posei,k)))
-                            val.append(J_pose[ri,k])
-                        for k in range(3):
-                            ind.append((resCnt+ri, idxPt(pti,k)))
-                            val.append(J_pt[ri,k])
-                    resCnt += 2
         printTimer(tt, 'GraphForm')
 
 

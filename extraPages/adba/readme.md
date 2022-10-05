@@ -17,7 +17,7 @@ For the initial implementation, I will explicitly form the approximate hessian m
 ## Simple Model
 Orientations are best represented by quaternions and rotation vector increments, but to make using AD simpler, let's just use an additive quaternion-increment model. This means we can just use AD as normal to get a quaternion component increments, which we than add to the state. After that, the quaternions are no longer unit-norm and so they must be renormalized. This process introduces some error because you are stepping off the manifold then projecting back to it, but with good initializations it isn't a big issue.
 
-Only points and poses are represented. A prior will be put on both kinds of nodes, so they should have good initializations.
+Only points and poses are represented. A prior will be put on both kinds of nodes, so they should have good initializations. Note: the prior residual is not tied to the original input, but rather the last estimate. So it is more of a dampening then a prior.
 
 No outlier rejection yet, but because of AD it will be easy to support robust cost functions etc.
 

@@ -2,6 +2,8 @@
 __pycache__
 *.jwk
 draft/
+private/
+posts/private/
 node_modules
 extraPages/**/*bundled.js
 package-lock.json
