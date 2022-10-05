@@ -42,3 +42,7 @@ But in BA, some cameras may observe 10 pts and others may observe 1000, so we ha
 ### Approach 3: Conjugate-Gradient
 This avoids the `J.T * J` approximate hessian matrix formation. It is a fancy algorithm that would fit functorch or Jax very well, because they both provide `jvp/vjp` functions which are more efficient then even forming `J`, let alone the product.
 Not even started yet.
+
+
+## Vizualizer
+There is also a torch-based point/line renderer useful for vizualization.
