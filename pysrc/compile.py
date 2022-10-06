@@ -230,7 +230,8 @@ def iterPosts():
     for file in os.listdir(dir):
         path = os.path.join(dir,file)
         if not os.path.isdir(path):
-            day,month,year,title0 = file.split('_', 3)
+            # day,month,year,title0 = file.split('_', 3)
+            year,month,day,title0 = file.split('_', 3)
 
             title0 = title0.replace('.md','')
             title0 = ' '.join(s.capitalize() for s in title0.split('_'))
