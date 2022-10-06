@@ -227,7 +227,7 @@ def get_navbar(pathToRoot='../'):
 
 def iterPosts():
     dir = 'posts'
-    for file in os.listdir(dir):
+    for file in os.listdir(dir)[::-1]:
         path = os.path.join(dir,file)
         if not os.path.isdir(path):
             # day,month,year,title0 = file.split('_', 3)
