@@ -1,5 +1,5 @@
 import torch, torch.nn, torch.nn.functional as F
-import time
+import time, cv2
 import sys
 
 '''
@@ -13,10 +13,13 @@ dev = torch.device('cpu')
 # dev = torch.device('cuda')
 
 
+PRINT_TIMER = False
 def printTimer(st, name):
-    print(' - \'{:<12s}\' took {:.2f}ms'.format(name, 1000*(time.time()-st)))
+    if PRINT_TIMER:
+        print(' - \'{:<12s}\' took {:.2f}ms'.format(name, 1000*(time.time()-st)))
 def printElapsed(tt, name):
-    print(' - \'{:<12s}\' took {:.2f}ms'.format(name, 1000*(tt)))
+    if PRINT_TIMER:
+        print(' - \'{:<12s}\' took {:.2f}ms'.format(name, 1000*(tt)))
 
 def q_to_matrix1(q):
     # r,i,j,k = q[0], q[1], q[2], q[3]
@@ -44,11 +47,11 @@ def mapProject(poses, pts):
     q, t = poses[:,:4], poses[:,4:]
     pts = pts.view(pts.size(0), 1,3)
 
-    tpts =  (q_to_matrix(q) @ (pts - t).permute(1,0,2).permute(0,2,1)).permute(0,2,1)
+    tpts =  (q_to_matrix(q).permute(0,2,1) @ (pts - t).permute(1,0,2).permute(0,2,1)).permute(0,2,1)
     # tpts =  (q_to_matrix(q).permute(0,2,1) @ (pts - t).permute(1,0,2).permute(0,2,1)).permute(0,2,1)
     return tpts[...,:2] / tpts[...,2:]
 
-# Project N pt into one image
+# Project N pts into one image
 def mapProject2(pose, pts):
     q,t = pose[...,:4], pose[...,4:]
 
@@ -59,17 +62,23 @@ def mapProject2(pose, pts):
 
 
 def generate_data(nposes, npts, nobs):
-    pts = torch.rand(npts,3) * 2 - 1
+    pts = (torch.rand(npts,3) * 2 - 1) * 10
+    pts[:,2] *= .1
 
     truePoses = torch.rand(nposes, 7)
     truePoses[:,:4] = torch.tensor([1.,0,0,0])
-    truePoses[:,4:] *= 2
-    truePoses[:,4:] -= 1
-    truePoses[:,-1] *= .1
-    truePoses[:,-1] -= 2
+    truePoses[:, :4] += torch.randn_like(truePoses[:,:4]) * .0
+    truePoses[:, :4]  = truePoses[:, :4] / truePoses[:, :4].norm(dim=-1,keepdim=True)
+    truePoses[:,4:] -= .5
+    truePoses[:,4:] *= 10
+    truePoses[:,-1] *= .02
+    truePoses[:,-1] -= 6 # they are in -Z axis
 
     predPoses = truePoses.clone()
-    predPoses[:, 4:] += torch.randn_like(predPoses[:,4:]) * torch.tensor((.5,.5,.1))
+    predPoses[:, :4] += (torch.rand_like(predPoses[:,:4]) - .5) * .2
+    predPoses[:, :4]  = predPoses[:, :4] / predPoses[:, :4].norm(dim=-1,keepdim=True)
+    predPoses[:, 4:] += (torch.rand_like(predPoses[:,4:]) -.5) * torch.tensor((.5,.5,.1)) * 2
+    # print(predPoses)
 
     pts = pts.to(dev)
     truePoses = truePoses.to(dev)
@@ -79,6 +88,8 @@ def generate_data(nposes, npts, nobs):
     # Each camera observed random subset of points
     obsPtIds = torch.stack([torch.randperm(npts) for _ in range(nposes)], 0)[:, :nobs]
     observations = observations_all.gather(1, torch.stack([obsPtIds]*2,-1))
+
+    pts = pts + torch.randn_like(pts) * .01
 
     return pts, truePoses, predPoses, observations, obsPtIds
 
@@ -105,50 +116,65 @@ def get_functorch_jac_2():
     return m2, d_m2
 
 
+class SparseOptimizer:
+    def __init__(self):
+        # nposes, npts, nobs = 2,6,5
+        # nposes, npts, nobs = 100,1000,20
+        # nposes, npts, nobs = 5,100,20
+        # nposes, npts, nobs = 25,30,20
+        nposes, npts, nobs = 50,200,20
 
-def do_sparse():
-    # nposes, npts, nobs = 2,6,5
-    nposes, npts, nobs = 100,1000,20
+        nstates = nposes*7 + npts*3
+        pts, truePoses, predPoses, observations, obsPtIds = generate_data(nposes,npts,nobs)
+        # observations = observations[...,:nobs, :]
+        # print('obsPtIds',obsPtIds.shape)
+        # print('pts',pts.shape)
 
-    nstates = nposes*7 + npts*3
-    pts, truePoses, predPoses, observations, obsPtIds = generate_data(nposes,npts,nobs)
-    # observations = observations[...,:nobs, :]
-    print('obsPtIds',obsPtIds.shape)
-    print('pts',pts.shape)
+        self.ptsForCamera = pts.view(1,npts,3).repeat(nposes,1,1).gather(1, torch.stack([obsPtIds]*3,-1))
 
-    ptsForCamera = pts.view(1,npts,3).repeat(nposes,1,1).gather(1, torch.stack([obsPtIds]*3,-1))
+        self.idxPose = lambda i,j: 7*i + j
+        self.idxPt   = lambda i,j: 7*nposes + 3*i + j
 
-    idxPose = lambda i,j: 7*i + j
-    idxPt   = lambda i,j: 7*nposes + 3*i + j
+        # ftMap, ftDMap = get_functorch_jac()
+        self.ftMap2, self.ftDMap2 = get_functorch_jac_2()
 
-    # ftMap, ftDMap = get_functorch_jac()
-    ftMap2, ftDMap2 = get_functorch_jac_2()
+        self.pts, self.truePoses, self.predPoses, self.observations, self.obsPtIds = \
+                pts, truePoses, predPoses, observations, obsPtIds
+        self.nposes, self.npts, self.nobs,self.nstates = nposes, npts, nobs, nstates
+        self.iteration = 0
 
-    for iter in range(4):
+        self.mse = (self.ftMap2(predPoses, self.ptsForCamera) - observations).norm(dim=-1).mean()
+        print('           - Initial mse', self.mse.item())
+
+
+    def step(self):
+        # Introduce locals
+        pts, truePoses, predPoses, observations, obsPtIds = \
+                self.pts, self.truePoses, self.predPoses, self.observations, self.obsPtIds
+        ftMap2, ftDMap2 = self.ftMap2, self.ftDMap2
+        ptsForCamera = self.ptsForCamera
+        nposes, npts, nobs, nstates = self.nposes, self.npts, self.nobs, self.nstates
+
         t0 = time.time()
 
         # Form graph
         ind,val = [],[]
         resCnt = 0
         res = []
-        mse = 0
 
         tt = time.time()
-        # print('poses',predPoses.shape)
-        # print('ptsForCamera',ptsForCamera.shape)
         exp = ftMap2(predPoses, ptsForCamera)
-        # print('exp', exp.shape)
-        # print('obs', observations.shape)
         res = exp - observations
         js = ftDMap2(predPoses,ptsForCamera)
         printTimer(tt, 'AutoDiff')
 
+
         # print(' - *** res ***', res.shape)
         # print(' - *** JS  ***', [j.shape for j in js])
 
-        mse = res.norm(dim=-1).mean()
         res = [res.reshape(-1)]
 
+        # NOTE: This is the bottleneck now, which is great because it is easily optimized
         tt = time.time()
         for posei in range(nposes):
             for obsi in range(nobs):
@@ -157,24 +183,26 @@ def do_sparse():
                 # if posei == 0 and pti == 0: print('here',J_pose,'\n',J_pt)
                 for ri in range(2):
                     for k in range(7):
-                        ind.append((resCnt+ri, idxPose(posei,k)))
+                        ind.append((resCnt+ri, self.idxPose(posei,k)))
                         val.append(J_pose[ri,k])
                     for obsi in range(nobs):
                         pti = obsPtIds[posei, obsi]
                         for k in range(3):
-                            ind.append((resCnt+ri, idxPt(pti,k)))
+                            ind.append((resCnt+ri, self.idxPt(pti,k)))
                             val.append(J_pt[ri,obsi,k])
                 resCnt += 2
 
-
         # Add priors
         for i in range(nstates):
+            '''
             if i < nposes*7:
                 # Weak prior on pose translations, stronger on orientation
-                val.append(.001 if i % 7 >= 4 else .01)
+                val.append(.001 if i % 7 >= 4 else .1)
             else:
                 # Strong prior on points
                 val.append(.01)
+            '''
+            val.append(.8)
             ind.append((resCnt,i))
             resCnt += 1
         res.append(torch.zeros(nstates))
@@ -183,8 +211,6 @@ def do_sparse():
         res = torch.cat(res).view(-1)
         ind = torch.tensor(ind).T
         val = torch.tensor(val)
-        print(res.shape,ind.shape)
-
 
         tt = time.time()
         J = torch.sparse_coo_tensor(ind,val, size=(resCnt, nposes*7+npts*3))
@@ -196,7 +222,7 @@ def do_sparse():
 
         H = torch.sparse.mm(J.t(), J)
         g = J.t() @ res
-        if iter == 0:
+        if self.iteration == 0:
             print(' - Sparsity stats')
             print(' \t- J ::',J.shape,'(nnz {}, {:.4f} occ)'.format(J._nnz(), J._nnz() / J.numel()))
             print(' \t- H ::',H.shape,'(nnz {}, {:.4f} occ)'.format(H._nnz(), H._nnz() / H.numel()))
@@ -211,9 +237,9 @@ def do_sparse():
 
         d_pts = d[nposes*7:].view(-1,3)
         d_poses = d[:nposes*7].view(-1,7)
-        print(' d shape',d.shape)
-        print(' d_pts shape',d_pts.shape)
-        print(' pts',pts.shape)
+        # print(' d shape',d.shape)
+        # print(' d_pts shape',d_pts.shape)
+        # print(' pts',pts.shape)
 
         for i,d_po in enumerate(d_poses):
             predPoses[i] -= d_po * 1
@@ -222,6 +248,43 @@ def do_sparse():
 
         # print(' - took {:.5f}ms'.format((time.time()-t0)*1000))
         printTimer(t0,'Iteration')
-        print(' \t\t\t\t- Iteration',iter,'mse',mse)
+        self.iteration += 1
 
-do_sparse()
+        self.mse = (ftMap2(predPoses, ptsForCamera) - observations).norm(dim=-1).mean()
+        print(' \t\t\t\t- Iteration',self.iteration,'mse',self.mse)
+
+
+def do_sparse():
+    sparse = SparseOptimizer()
+    for iter in range(4):
+        sparse.step()
+
+def do_sparse_viz():
+    from viz import Viz
+    sparse = SparseOptimizer()
+
+    # def set_data(self, pts, poses, fs, colors):
+    vizPoseColors = torch.rand(sparse.nposes, 4).cuda()
+    vizPoseColors[...,3] = .9
+    vizPoseColors[...,:3] = F.normalize(vizPoseColors[...,:3])
+    vizFs = torch.ones(sparse.nposes, 2).cuda()
+
+    viz    = Viz()
+    viz.set_data(sparse.pts.cuda(), sparse.predPoses.cuda(), vizFs, vizPoseColors)
+    viz.wait = 1
+
+    for i in range(9999):
+        key,f = viz.draw()
+
+        # if key == 'n':
+        if True:
+            cv2.imwrite('out/step_{:04d}.jpg'.format(sparse.iteration), f[...,[2,1,0]])
+            sparse.step()
+            viz.set_data(sparse.pts.cuda(), sparse.predPoses.cuda(), vizFs, vizPoseColors)
+
+
+
+if 'viz' in sys.argv:
+    do_sparse_viz()
+else:
+    do_sparse()

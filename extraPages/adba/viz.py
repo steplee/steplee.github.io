@@ -2,6 +2,15 @@ import cv2
 import numpy as np, time
 import torch, torch.nn, torch.nn.functional as F
 
+def q_to_matrix1_(q):
+    # r,i,j,k = q[0], q[1], q[2], q[3]
+    # return torch.stack((
+    r,i,j,k = q[0:1], q[1:2], q[2:3], q[3:4]
+    return torch.cat((
+        1-2*(j*j+k*k), 2*(i*j-k*r), 2*(i*k+j*r),
+        2*(i*j+k*r), 1-2*(i*i+k*k), 2*(j*k-i*r),
+        2*(i*k-j*r), 2*(j*k+i*r), 1-2*(i*i+j*j))).view(3,3)
+
 '''
 A line and point renderer to go with ba stuff
 '''
@@ -20,21 +29,12 @@ _f_pts = torch.tensor([
 _f_pts[:4] *= near
 _f_pts[4:] *= far
 _inds = torch.tensor([
-    [0,1],
-    [1,2],
-    [2,3],
-    [3,0],
-    [4+0,4+1],
-    [4+1,4+2],
-    [4+2,4+3],
-    [4+3,4+0],
-    [0,0+4],
-    [1,1+4],
-    [2,2+4],
-    [3,3+4],]).view(-1,2).cuda()
+    [0,1], [1,2], [2,3], [3,0],
+    [4+0,4+1], [4+1,4+2], [4+2,4+3], [4+3,4+0],
+    [0,0+4], [1,1+4], [2,2+4], [3,3+4],]).view(-1,2).cuda()
 
+# glsl code
 '''
-glsl code
 float distanceToLineSegment(vec2 a, vec2 b, vec2 q, inout vec2 p, inout float t) {
     t = dot(q-a, normalize(b-a)) / (distance(a,b)+1e-6);
     t = clamp(t, 0., 1.);
@@ -42,6 +42,7 @@ float distanceToLineSegment(vec2 a, vec2 b, vec2 q, inout vec2 p, inout float t)
     return distance(p,q);
 }
 '''
+# Using cv2.polylines makes much more sense.
 def project_frustum_(R,t,f, camR, eye, uv):
     fpts = _f_pts.clone()
     fpts[:, :2] *= f * 1
@@ -64,13 +65,11 @@ def project_frustum_(R,t,f, camR, eye, uv):
 
     # S x 12 x 2
     qa = uv.view(S, 1, 2) - ps[:, 1].view(1, 12, 2)
-    # t = (qa @ ab.T).clamp(0,1)
     t = ((qa * ab.view(1,12,2)).sum(-1) / dab.view(1,12)).clamp(0,1)
     p = ps[:,1] + t.view(-1,12,1) * ab1
 
     dist = (p - uv.view(-1,1,2)).norm(dim=-1).min(1).values
-    # dist = abs(t).min(1).values
-    alpha = torch.exp(-dist * 150)
+    alpha = torch.exp(-dist * 750)
     return alpha
 
 
@@ -89,23 +88,38 @@ def compile_frustum_():
 
 class Viz:
     def __init__(self):
-        self.frame = torch.zeros((512,512,3),dtype=torch.uint8).cuda().contiguous()
+        self.frame = torch.zeros((512,512,3),dtype=torch.int32).cuda().contiguous()
 
         self.pts = (torch.rand(100,3).cuda() * 2 - 1) * 5
 
-        self.R = torch.eye(3).cuda()
-        self.t = torch.tensor([0,0,5.]).cuda()
+        # self.R = torch.diag(torch.tensor([1.,-1.,-1.])).cuda()
+        # self.t = torch.tensor([0,0,5.]).cuda()
+        self.R = torch.diag(torch.tensor([1.,1.,1.])).cuda()
+        self.t = torch.tensor([0,0,-12.]).cuda()
 
         self.uv = torch.stack(torch.meshgrid(
             torch.linspace(-1,1,512),
-            torch.linspace(-1,1,512)), -1).cuda()
+            torch.linspace(-1,1,512)), -1).cuda()[...,[1,0]]
 
         self.project_frustum = compile_frustum_()
 
-        # R, t, f
-        self.poses = [
-                (torch.eye(3).cuda(), torch.tensor([0,0,-2.]).cuda(), torch.ones(2).cuda())
-                    ]
+        self.wait = 0
+
+        # R, t, f, color
+        if 0:
+            R1 = torch.from_numpy(cv2.Rodrigues(np.array((.1,.2,.3)))[0]).cuda().float()
+            self.poses = [
+                    (   torch.eye(3).cuda(), torch.tensor([0,0,-2.]).cuda(), torch.ones(2).cuda(), torch.rand(4).cuda()),
+                    (R1@torch.eye(3).cuda(), torch.tensor([2,0,-2.]).cuda(), torch.ones(2).cuda(), torch.rand(4).cuda()),
+                        ]
+
+    def set_data(self, pts, poses, fs, colors):
+        self.poses = []
+        for pose,f,col in zip(poses,fs,colors):
+            r = q_to_matrix1_(pose[:4])
+            t = (pose[4:])
+            self.poses.append((r,t,f,col))
+        self.pts = pts
 
     def draw(self):
         with torch.no_grad():
@@ -126,28 +140,44 @@ class Viz:
             else:
                 d = torch.cdist(ppts,uv.view(-1,2))
             d = d.min(0).values.view(h,w,1)
-            d = (-d * 1000).exp()
-            self.frame += (d * 255).clip(0,255).to(torch.uint8)
+            d = (-d * 600).exp()
+            self.frame += (d * 255).clip(0,255).to(torch.int32)
 
             # Draw frustums 
             for pose in self.poses:
-                pr,pt,f = pose
+                pr,pt,f,col = pose
                 # alpha = project_frustum_(pr,pt, f, R,t, uv)
-                alpha = self.project_frustum(pr,pt, f, R,t, uv)
-                alpha = (alpha*255).clip(0,255).to(torch.uint8)
-                self.frame += alpha.view(h,w,1)
+                alpha = self.project_frustum(pr,pt, f, R,t, uv).view(-1,1)
+                alpha = ((col[:3]*col[3]).view(1,3)*alpha*255).clip(0,255).to(torch.int32)
+                self.frame += alpha.view(h,w,3)
 
-            f = self.frame.cpu().numpy()
+            f = self.frame.clip(0,255).byte().cpu().numpy()
             f = np.copy(f,'C')
-            print(' - took', (time.time()-tt)*1000, 'ms')
+            print(' - draw took', (time.time()-tt)*1000, 'ms')
 
 
+            f = cv2.resize(f,(0,0),fx=2,fy=2)
             cv2.imshow('frame', f[...,[2,1,0]])
-            cv2.waitKey(0)
+
+            key = (cv2.waitKey(self.wait))
+            if key > 0 and key < 512:
+                key = chr(key)
+            else: key = '-'
+            v = torch.zeros_like(self.t)
+            r = np.zeros(3,dtype=np.float32)
+            if key == 'a': v[0] -= .1
+            if key == 'd': v[0] += .1
+            if key == 'w': v[2] += .1
+            if key == 's': v[2] -= .1
+            if key == 'q': r[2] += .02
+            if key == 'e': r[2] -= .02
+            dR = cv2.Rodrigues(r)[0]
+            self.t += self.R @ v
+            self.R = self.R @ torch.from_numpy(dR).cuda()
+            return key, f
 
 
 if __name__ == '__main__':
     viz = Viz()
-    for i in range(100):
-        viz.t[0] += .01
+    for i in range(1000):
         viz.draw()
