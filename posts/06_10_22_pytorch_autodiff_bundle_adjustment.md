@@ -2,6 +2,8 @@
 
 I had off today and decided to explore how far I could get using some of pytorch's new features in creating a simple Bundle Adjuster in pure python.
 
+ > Code is [here](https://github.com/steplee/steplee.github.io/tree/master/extraPages/adba)
+
 I've used the popular Ceres and g2o libraries for similar things in the past.
 I even tried to code up a BA myself in C++, but my interest waned after a day or two of slow progress.
 But it was more fun this time around with pytorch. Within a day I got some nice results and even built a point-and-line vizualizer for it, in the spirit of pixel shaders but using pytorch because why not?
@@ -41,3 +43,5 @@ Even if I allow a sparse optimizer to solve `J.T @ J`, it is still expensive to 
 
 ## Robustness
 A huge desiderada for a BA system is robustness. Currently this assumes no outliers and has no robust loss functions. That would probably not be hard, because of how easy everything is with AD!
+
+# TODO: Finish writing this
