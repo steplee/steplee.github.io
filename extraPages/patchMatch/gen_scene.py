@@ -135,8 +135,10 @@ def gen_pair(wh, f, dt):
         torch.linspace(-1,1,w),
         torch.linspace(-1,1,h)),
         torch.ones(w,h)), -1).cuda()[...,[1,0,2]]
-    rd1[:,:,0] *= f[0]
-    rd1[:,:,1] *= f[1]
+    # rd1[:,:,0] *= f[0] / (w*.5)
+    # rd1[:,:,1] *= f[1] / (h*.5)
+    rd1[:,:,0] *= (w*.5) / f[0]
+    rd1[:,:,1] *= (h*.5) / f[1]
     rd1 = rd1 / rd1.norm(dim=-1,keepdim=True)
     rd2 = rd1.clone()
 
@@ -150,7 +152,9 @@ def gen_pair(wh, f, dt):
 
 import cv2
 dt = torch.tensor([.5,0.,0.])
-f = (.5,.5)
+h,w = 512,512
+fov = 70.
+f = ((w/2) / np.tan(fov/2), (h/2) / np.tan(fov/2))
 d1,i1,d2,i2 = gen_pair((512,512), f, dt)
 print(d1.min(),d1.max())
 cv2.imshow('img1', i1.cpu().numpy())
