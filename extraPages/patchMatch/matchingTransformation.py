@@ -23,6 +23,13 @@ def compute_normalizer_2d(pa):
     T[0,0] = T[1,1] = s
     return T
 
+def project(x):
+    return x[...,:2] / x[...,2:]
+
+def apply_homog(xs, H):
+    ys = homogoneousize(xs) @ H.T
+    return project(ys)
+
 '''
 Zisserman-Hartley, Chapter 11
 Normalized 8-point algorithm
@@ -81,9 +88,6 @@ def fundamental_from_matrices(PA, PB, KA, KB):
     F = cross_matrix(X @ C) @ X @ Xplus
     return F
 
-def project(x):
-    return x[...,:2] / x[...,2:]
-
 def rodrigues(w):
     t = np.linalg.norm(w) + 1e-12
     k = w / t
@@ -136,37 +140,41 @@ def rot_a_into_b(a,b):
 Zisserman-Hartley, Sections 11.12.1 and 11.12.2
 '''
 # def find_matching_transformation(PA, PB, KA, KB, ptsa, ptsb):
-def find_matching_transformation(F, ptsa, ptsb):
+def find_matching_transformation(F, ptsa, ptsb, secondStageThresh=2):
     N = len(ptsa)
     ea, eb = epipoles_from_fundamental(F)
+
+    ee = eb
 
     # Step 1: Find HB
     if 1:
         x0 = np.zeros(2) # Chosen central point with minimal distortion
-        # x0 = ptsb.mean(0)
+        x0 = ptsb.mean(0)
         T = np.eye(3)
         T[:2,2] = -x0
+        local_ee = T @ ee
 
         # TODO: If angle is less when rotating other way do that (do not require f be positive)
-        ee = eb
         # ee = ea
-        ang = np.arctan2(ee[1], ee[0])
+        ang = np.arctan2(local_ee[1], local_ee[0])
         R = np.eye(3)
         R[0,0] = R[1,1] = np.cos(ang)
         R[1,0] = -np.sin(ang)
         R[0,1] = np.sin(ang)
-        moved_epipole = R@ee
+        moved_epipole = R@local_ee
         moved_epipole /= moved_epipole[2]
         f = moved_epipole[0]
         assert abs(moved_epipole[1]) < 1e-10, moved_epipole
-        print('f',f, R@ee, R@T@ee)
+        print('f',f, R@local_ee, moved_epipole)
 
         G = np.eye(3)
         G[2,0] = -1/f
 
-        HB = G @ R @ T
-        # HB = np.linalg.inv(T) @ G @ R @ T
-        print('HB:\n',HB)
+        # HB = G @ R @ T
+        HB = np.linalg.inv(T) @ G @ R @ T
+        # HB[0] *= 1 / (HB@ee)[0] # Because of translation, HB@e is not <1,0,0>, but we can make it so
+
+        # print('HB:\n',HB)
         print('HB @ ee:',HB@ee)
 
 
@@ -187,12 +195,14 @@ def find_matching_transformation(F, ptsa, ptsb):
             # K = np.eye(3)
             # K[:2,2] = -ptsa.mean()
             # F = K @ F @ K
+            '''
             u,s,vt = np.linalg.svd(F)
             print(s)
             w = np.array((0,-1,0,1,0,0,0,0,1.)).reshape(3,3)
             z = np.array((0,1,0, -1,0,0, 0,0,0.)).reshape(3,3)
             t = u[:,2]
             M = u@w@vt
+            '''
             # M = cross_matrix(t)@u@w@vt
             # M = u@vt
             '''
@@ -202,43 +212,61 @@ def find_matching_transformation(F, ptsa, ptsb):
             M = cross_matrix(ee) @ F + np.outer(ee,v)
             '''
 
-            # M = np.eye(3)
-            print('ERR',F - cross_matrix(ee)@M)
+            M = -cross_matrix(ee) @ F + .01*np.outer(ee, np.ones(3))
+            print('F-M ERR',abs(F - cross_matrix(ee)@M).sum())
         else:
             import cv2
             M,_,_ = cv2.decomposeEssentialMat(F)
 
-
         H0 = HB @ M
-        # H0 = M @ HB
-        # H0 /= H0[2,2]
-        print('M:\n',M, 'ee',ee)
-        print('H0:\n',H0, 'ee',ee)
 
         ahat = project(homogoneousize(ptsa) @ H0.T)
         bhat = project(homogoneousize(ptsb) @ HB.T)
-        print('first 10 ahats and bhats:\n', np.concatenate((ahat,bhat),-1)[:10])
+        # print('first 10 ahats and bhats:\n', np.concatenate((ahat,bhat),-1)[:10])
 
-        A = np.zeros((N,3))
-        res = np.zeros(N)
-        for i in range(N):
-            A[i] = ahat[i,0], ahat[i,1], 1
-            # res[i] = ahat[i,0] - bhat[i,0]
-            res[i] =   bhat[i,0]
-        # print('A',A.T)
-        # abc = np.linalg.solve(A.T @ A, A.T @ res)
-        prob = np.linalg.lstsq(A, res)
-        abc = prob[0]
-        print(np.linalg.svd(A.T@A))
+        A = np.ones((N,3))
+        A[:,:2] = ahat
+        bb = bhat[:,0]
+
+        # abc = np.linalg.solve(A.T @ A, A.T @ bb)
+        abc,res,_,_ = np.linalg.lstsq(A, bb, rcond=None)
+        print('AtA singular values',np.linalg.svd(A.T@A)[1])
         print(' - solved abc', abc)
-        print(' - lstsq res ', prob[1])
+        print(' - lstsq res ', res)
 
         HAA = np.eye(3)
-        # HAA[0] = abc # WARNING: Disabled
+        HAA[0] = abc
+        HA = HAA @ H0; HA /= HA[2,2]
 
-        HA = HAA @ H0
-        HA /= HA[2,2]
+        if secondStageThresh > 0:
+            h_ptsa = project(homogoneousize(ptsa) @ HA.T)
+            h_ptsb = project(homogoneousize(ptsb) @ HB.T)
+            mask2 = abs(h_ptsa - h_ptsb)[:,1] < secondStageThresh
+            # mask2 = abs(h_ptsa - h_ptsb)[:,0] < 20
+            print(mask2.sum() , N)
 
+            ahat = project(homogoneousize(ptsa[mask2==1]) @ H0.T)
+            bhat = project(homogoneousize(ptsb[mask2==1]) @ HB.T)
+            N2 = ahat.shape[0]
+            # print('first 10 ahats and bhats:\n', np.concatenate((ahat,bhat),-1)[:10])
+
+            A = np.ones((N2,3))
+            A[:,:2] = ahat
+            bb = bhat[:,0]
+
+            # abc = np.linalg.solve(A.T @ A, A.T @ bb)
+            abc,res,_,_ = np.linalg.lstsq(A, bb, rcond=None)
+            print('AtA singular values',np.linalg.svd(A.T@A)[1])
+            print(' - solved abc', abc)
+            print(' - lstsq res ', res)
+        else:
+            mask2 = np.ones(N, dtype=int)
+
+        HAA = np.eye(3)
+        HAA[0] = abc
+        HA = HAA @ H0; HA /= HA[2,2]
+
+        '''
         print(' - pts              ', abs(ptsa[:,0]-ptsb[:,0]).sum())
         print(' - original residual', abs(res).sum())
         # print(' - post+projresidual', abs(project(homogoneousize(ptsa)@(HA))[:,0] - project(bhat)[:,0]).sum())
@@ -247,11 +275,13 @@ def find_matching_transformation(F, ptsa, ptsb):
         print(' - pts               y', abs(ptsa[:,1]-ptsb[:,1]).sum())
         print(' - pre +projresidual y', abs(project(homogoneousize(ptsa)@(H0.T))[:,1] - (bhat)[:,1]).sum())
         print(' - post+projresidual y', abs(project(homogoneousize(ptsa)@(HA.T))[:,1] - (bhat)[:,1]).sum())
+        '''
 
-    print('h0\n',H0)
-    print('ha\n',HA)
-    print('hb\n',HB)
-    return HA, HB
+
+    # print('h0\n',H0)
+    # print('ha\n',HA)
+    # print('hb\n',HB)
+    return HA, HB, mask2
 
 def test_matching_xform():
     pts1 = np.random.randn(10,2)
@@ -264,8 +294,9 @@ def test_matching_xform():
 
 def test_matching_xform_real_data():
     import cv2
+    # imga,imgb = cv2.imread('data/dino1.jpg'), cv2.imread('data/dino2.jpg')
     # imga,imgb = cv2.imread('data/dino4.jpg'), cv2.imread('data/dino3.jpg')
-    # imga,imgb = cv2.imread('data/mike1.jpg'), cv2.imread('data/mike2.jpg')
+    imga,imgb = cv2.imread('data/mike1.jpg'), cv2.imread('data/mike2.jpg')
     imgb,imga = cv2.imread('data/strathmore1.jpg'), cv2.imread('data/strathmore2.jpg')
     imga = cv2.resize(imga, (0,0), fx=.5, fy=.5)
     imgb = cv2.resize(imgb, (0,0), fx=.5, fy=.5)
@@ -309,25 +340,52 @@ def test_matching_xform_real_data():
     # pts2a = pts2a - pts2a.mean(0)
     # pts2b = pts2b - pts2b.mean(0)
     F = fundamental_from_pts(pts2a, pts2b)
-    # F=Fcv
-    # ea,eb = epipoles_from_fundamental(Fcv)
-    # print(' - Epipole A (normalized):', ea/ea[2])
-    # print(' - Epipole B (normalized):', eb/eb[2])
     ea,eb = epipoles_from_fundamental(F)
     print(' - Epipole A (normalized):', ea/ea[2])
     print(' - Epipole B (normalized):', eb/eb[2])
-    Ha, Hb = find_matching_transformation(F, pts2a, pts2b)
+    Ha, Hb, mask2 = find_matching_transformation(F, pts2a, pts2b)
     h,w = imga.shape[:2]
     ra = cv2.warpPerspective(imga,Ha, (w,h))
     rb = cv2.warpPerspective(imgb,Hb, (w,h))
-    dimg = np.concatenate((ra,rb), 1)
-    dimg = cv2.resize(dimg, (0,0), fx=.5, fy=.5)
+
+    if 1:
+        ptsa = apply_homog(ptsa,Ha)
+        ptsb = apply_homog(ptsb,Hb)
+        pts2a = apply_homog(pts2a,Ha)
+        pts2b = apply_homog(pts2b,Hb)
+
+        d = (pts2a - pts2b)[mask2==1]
+        print(' - y rmse', np.sqrt((d[:,1] * d[:,1]).sum()))
+        print(' - x rmse', np.sqrt((d[:,0] * d[:,0]).sum()))
+        d = (pts2a - pts2b)
+        print(' - y rmse', np.sqrt((d[:,1] * d[:,1]).sum()))
+        print(' - x rmse', np.sqrt((d[:,0] * d[:,0]).sum()))
+
+        baseImg, scale = np.concatenate((ra,rb), 1), 1
+        baseImg, scale = cv2.resize(baseImg, (0,0), fx=.5, fy=.5), scale * .5
+        w = baseImg.shape[1]//2
+        for pt in ptsa: cv2.circle(baseImg, (  int(scale*pt[0]), int(scale*pt[1])), 1, (0,255,0), -1)
+        for pt in ptsb: cv2.circle(baseImg, (w+int(scale*pt[0]), int(scale*pt[1])), 1, (0,255,0), -1)
+        for pta, ptb in zip(pts2a, pts2b):
+            cv2.line(baseImg,
+                    (int(scale*pta[0]), int(scale*pta[1])),
+                    (int(w+scale*ptb[0]), int(scale*ptb[1])), (222,205,0), 1)
+        for pta, ptb in zip(pts2a[mask2==1], pts2b[mask2==1]):
+            cv2.line(baseImg,
+                    (int(scale*pta[0]), int(scale*pta[1])),
+                    (int(w+scale*ptb[0]), int(scale*ptb[1])), (0,255,0), 1)
+        for y in range(0,baseImg.shape[0]-1,64):
+            baseImg[y] //= 2
+
+    dimg = baseImg
+    # dimg = cv2.resize(dimg, (0,0), fx=.5, fy=.5)
     cv2.imshow('dimg', dimg)
     cv2.waitKey(0)
 
 
 
-# test_F_from_matrices()
-# test_F_from_pts()
-# test_matching_xform()
-test_matching_xform_real_data()
+if __name__ == '__main__':
+    # test_F_from_matrices()
+    # test_F_from_pts()
+    # test_matching_xform()
+    test_matching_xform_real_data()
