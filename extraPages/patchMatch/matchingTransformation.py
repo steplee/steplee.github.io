@@ -1,4 +1,4 @@
-import numpy as np
+import numpy as np, cv2
 np.random.seed(0)
 
 def isometry_inv_3(A):
@@ -26,6 +26,10 @@ def compute_normalizer_2d(pa):
 def project(x):
     return x[...,:2] / x[...,2:]
 
+def transform_project(xs, T, K):
+    return project(((xs @ T[:3,:3].T) + T[:3,3:].T) @ K.T)
+
+
 def apply_homog(xs, H):
     ys = homogoneousize(xs) @ H.T
     return project(ys)
@@ -36,7 +40,7 @@ Normalized 8-point algorithm
 
 # TODO: Implement either the iterative Gold-Standard LS optim, or the iterative algebraic refinement.
 '''
-def fundamental_from_pts(pa,pb):
+def fundamental_from_pts_linear(pa,pb):
     N = len(pa)
     assert N >= 8
 
@@ -56,9 +60,21 @@ def fundamental_from_pts(pa,pb):
     s[2] = 0
     F = (u*s)@vt
 
+    print(' - F det0', np.linalg.det(u@vt))
+    if np.linalg.det(F) < 0: F = -F
+    print(' - F det1', np.linalg.det(u@vt))
+
+
     F = Tb.T @ F @ Ta
 
     return F
+
+def fundamental_from_pts(pa,pb):
+    F0 = fundamental_from_pts_linear(pa,pb)
+    return F0
+
+    # u,s,vt = np.linalg.svd(F0)
+    # e0 = vt[-1]
 
 def cross_matrix(k):
     return np.array((
@@ -115,18 +131,43 @@ def test_F_from_matrices():
 
 
 def test_F_from_pts():
-    pts1 = np.random.randn(10,2)
-    true_pts2 = pts1 + (.1,.2)
-    true_pts2 = true_pts2 @ np.array((np.cos(1), -np.sin(1), np.sin(1), np.cos(1))).reshape(2,2)
-    obs_pts2 = true_pts2 + np.random.randn(*true_pts2.shape) * .01
+
+    worldPts = (np.random.rand(10,3) -.5) * .3
+    worldPts[:, 2] *= .0001
+
+    P1 = np.eye(4)
+    P2 = np.eye(4)
+    P1[:3,3] = 0,0,1
+    P2[:3,3] = .1,0,1
+    P2[:3,:3] = rodrigues(np.array((.01,0,.02)))
+
+    K = np.eye(3)
+    K[0,0] = K[1,1] = 200
+    K[:2,2] = 256
+
+    pts1 = transform_project(worldPts, P1, K)
+    pts2 = transform_project(worldPts, P2, K)
+
+    # obs_pts2 = pts2 + np.random.randn(*pts1.shape) * .01
+    obs_pts2 = pts2 + np.random.randn(*pts1.shape) * 0
+    print(pts1)
+
 
     F = fundamental_from_pts(pts1, obs_pts2)
     print('F:\n',F)
     print(' - epi errors, based on noisy observations:')
     for i in range(len(pts1)):
-        print(homogoneousize(pts1[i]) @ F.T @ homogoneousize(true_pts2[i]), (homogoneousize(pts1[i]) @ F.T @ homogoneousize(obs_pts2[i])))
+        print(homogoneousize(pts1[i]) @ F.T @ homogoneousize(pts2[i]), (homogoneousize(pts1[i]) @ F.T @ homogoneousize(obs_pts2[i])))
 
     print(' - epi from F :: ',epipoles_from_fundamental(F))
+
+    # K1 = K2 = np.eye(3)
+    K1 = K2 = K
+    Ppred = decompose_essential(F, K1, K2, P1[:3] @ homogoneousize(worldPts[3]))
+    print(' - True P21:\n', P2 @ isometry_inv_3(P1))
+    print(' - Decomposing E got P21:\n',Ppred)
+    print(' - det', np.linalg.det(Ppred[:3,:3]))
+    # decompose_essential(F, K1, K2, (worldPts[0]))
 
 
 # https://ethaneade.com/rot_between_vectors.pdf
@@ -135,6 +176,85 @@ def rot_a_into_b(a,b):
     w = np.cross(a,b)
     K = cross_matrix(w)
     return np.eye(3) + K + (1 / (1 + a@b)) * K@K
+
+# Note: this should be used in the scenario where @cameraPt is in the frame of cameraA,
+# i.e. if the world pt is w, then cameraPt = cameraA @ w
+def decompose_essential(F, K1, K2, cameraPtInA):
+    if cameraPtInA[-1] < 0:
+        print(' - decompose_essential() input world point must have positive Z value in this impl.')
+        return None
+
+    E = K2.T @ F @ K1
+
+
+
+
+    u,s,vt = np.linalg.svd(E)
+    print(np.linalg.det(u@vt),u,vt)
+    W = np.array((0, -1, 0, 1, 0, 0, 0, 0, 1.)).reshape(3,3)
+    # W = np.eye(3)
+    Z = np.array((0,1,0, -1,0,0, 0,0,0)).reshape(3,3)
+
+    print(' - Decomposed E s', s)
+    det = np.linalg.det(u@W@vt)
+    print(' - Decomposed Rot Det', det)
+    # if det < -.1:
+        # vt[:,-1] *= -1
+        # u[-1] *= -1
+
+    sign = 1 if np.linalg.det(u@W@vt) > .0 else -1
+    u3 = u[:,2:]
+    # u3 = u[2:,:].T
+    P1 = np.hstack((sign*u@W@vt, u3))
+    P2 = np.hstack((sign*u@W@vt, -u3))
+    P3 = np.hstack((sign*u@W.T@vt,  u3))
+    P4 = np.hstack((sign*u@W.T@vt, -u3))
+    Ps = np.stack((P1,P2,P3,P4),0)
+    print(' my solve')
+    print(u@W@vt, np.linalg.det(u@W@vt))
+    print(u@W.T@vt)
+    print(u3)
+
+    '''
+    R1, R2, t = cv2.decomposeEssentialMat(E)
+    print(' opecv solve')
+    print(R1)
+    print(R2)
+    print(t)
+    P1 = np.hstack((R1, t))
+    P2 = np.hstack((R1, -t))
+    P3 = np.hstack((R2,  t))
+    P4 = np.hstack((R2, -t))
+    Ps = np.stack((P1,P2,P3,P4),0)
+    '''
+
+
+
+    pt = homogoneousize(cameraPtInA)
+
+    if 1:
+        print('mapped pt 1', P1 @ pt, project(K2@P1@pt))
+        print('mapped pt 2', P2 @ pt, project(K2@P2@pt))
+        print('mapped pt 3', P3 @ pt, project(K2@P3@pt))
+        print('mapped pt 4', P4 @ pt, project(K2@P4@pt))
+
+    Ps = [P for P in Ps if (P @ pt)[2] > 0]
+    print(Ps)
+
+    if len(Ps) == 0:
+        print(' - decompose_essential() got zero valid matrices after doing in-front-of-camera check.')
+        return None
+    if len(Ps) > 1:
+        print(' - decompose_essential() got multiple valid matrices after doing in-front-of-camera check, using smallest')
+        # Pick the one closest to center
+        # only valid when cx/cy (K[:2,2]) is the actual center of image (i.e. not a crop)
+        return Ps[-1]
+        ds = np.array([np.linalg.norm(P @ pt) for P in Ps])
+        return Ps[np.argmin(ds)]
+    else:
+        return Ps[is_positive[0]]
+
+
 
 '''
 Zisserman-Hartley, Sections 11.12.1 and 11.12.2
@@ -214,6 +334,7 @@ def find_matching_transformation(F, ptsa, ptsb, secondStageThresh=2):
 
             M = -cross_matrix(ee) @ F + .01*np.outer(ee, np.ones(3))
             print('F-M ERR',abs(F - cross_matrix(ee)@M).sum())
+
         else:
             import cv2
             M,_,_ = cv2.decomposeEssentialMat(F)
@@ -386,6 +507,6 @@ def test_matching_xform_real_data():
 
 if __name__ == '__main__':
     # test_F_from_matrices()
-    # test_F_from_pts()
+    test_F_from_pts()
     # test_matching_xform()
-    test_matching_xform_real_data()
+    # test_matching_xform_real_data()

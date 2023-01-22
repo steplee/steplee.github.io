@@ -1,5 +1,86 @@
 import torch, numpy as np
 
+class Intrinsics:
+    def __init__(self, wh, f, c, dc=None):
+        self.wh, self.f, self.c, self.dc = wh, f, c, dc
+        if not isinstance(self.f, np.ndarray): self.f = np.array(self.f)
+        if not isinstance(self.c, np.ndarray): self.c = np.array(self.c)
+        if not isinstance(self.dc, np.ndarray): self.dc = np.array(self.dc)
+        if not isinstance(self.wh, np.ndarray): self.wh = np.array(self.wh)
+        self.map = None
+
+    def K(self):
+        return np.array((
+            self.f[0], 0, self.c[0],
+            0, self.f[1], self.c[1],
+            0, 0, 1)).reshape(3,3)
+
+    def projectStage1(self, x):
+        if x.ndim > 1 and x.shape[-1] == 3:
+            return (x[..., :2] / x[..., 2:]) * self.f + self.c
+
+    def projectStage2(self, x):
+        y = self.projectStage1(x)
+        return self.distort(y)
+
+    def distort(self, x):
+        y = (x-self.c)
+        yy = y / self.f
+        r2 = ((yy*yy)).sum(-1)[...,np.newaxis]
+        return c + y / (1 + self.d[0]*r2 + self.d[1]*r2*r2)
+
+    def resize(self, wh):
+        factor = wh / self.wh
+        f = self.f * factor
+        c = self.c * factor
+        return Intrinsics(wh, f, c, self.dc)
+
+    def get_unwarp_map_gradient_descent():
+        h,w = self.wh
+        map = np.zeros((h,w,2),dtype=np.float32)
+        grid = np.stack(np.meshgrid(np.arange(0,w), np.arange(0,h)), -1).astype(np.float32)
+
+        print(' - Computing unwarp map...')
+        for iter in range(5):
+            p1 = distort(grid+map, d, f, c)
+            res = (p1 - grid).reshape(-1,2)
+            print('mse',(res*res).mean())
+            map -= res.reshape(h,w,2) * .96
+
+        return grid+map
+
+    # Bilinear interpolation with the computed undistort map.
+    # The first time this is called, it will compute the map.
+    def undistort(self, x):
+        assert x.shape[1] == self.wh[0]
+        assert x.shape[0] == self.wh[1]
+
+        if self.map is None:
+            self.map = self.get_unwarp_map_gradient_descent()
+
+        imap = self.map.astype(np.int32)
+
+        def clamp_(a):
+            np.clip(a[...,0], 0, w-1, out=a[...,0])
+            np.clip(a[...,1], 0, h-1, out=a[...,1])
+            return a
+
+        ai = (clamp_(imap + (0, 0)) * (1, w)).sum(-1)
+        bi = (clamp_(imap + (1, 0)) * (1, w)).sum(-1)
+        ci = (clamp_(imap + (1, 1)) * (1, w)).sum(-1)
+        di = (clamp_(imap + (0, 1)) * (1, w)).sum(-1)
+
+        img_ = x.reshape(h*w,-1).astype(np.float32)
+        fx,fy = (map - imap).transpose(2,0,1)
+        fx = fx.reshape(h,w,-1)
+        fy = fy.reshape(h,w,-1)
+        a = img_[ai] * (1-fx) * (1-fy)
+        b = img_[bi] * (  fx) * (1-fy)
+        c = img_[bi] * (  fx) * (  fy)
+        d = img_[bi] * (1-fx) * (  fy)
+
+        return (a+b+c+d).reshape(h,w,-1).astype(img.dtype)
+
 class Scene:
     def __init__(self, meta):
         self.meta = meta
@@ -123,6 +204,8 @@ class Scene:
         meta['imga'] = ra
         meta['imgb'] = rb
         meta['F'] = F
+        meta['Ha'] = Ha
+        meta['Hb'] = Hb
         meta['inlyingPtsa'] = pts2a
         meta['inlyingPtsb'] = pts2b
         return Scene(meta)
@@ -130,10 +213,26 @@ class Scene:
 
 
 if __name__ == '__main__':
-    f=np.array((1024,1024, 3000*.5, 4000*.5))
+    # f=np.array((3000,3000, 3000*.5, 4000*.5, 3000,4000)) # fxfy cxcy wh
+    # f=np.array((3000,3000, 3000*.5, 4000*.5, 3000,4000))*.5 # fxfy cxcy wh
     # Scene.fromImagePair('../../data/mike1.jpg', '../../data/mike2.jpg', intrina=f, intrinb=f)
-    scene = Scene.fromImagePair('data/mike1.jpg', 'data/mike2.jpg', intrina=f, intrinb=f, secondStageThresh=2)
-    scene.save('data/sceneMike.pt')
+
+    # See calibrateGraphPaper.py for how to get these numbers
+    intrin = Intrinsics(f=(2986.120336715084,2991.4386183123625), c=(1474.1917881681275,2009.588907222042), dc=(-0.10090114785478849,0.12932784087791988), wh=(3000,4000)).resize((1500,2000))
+
+    if 0:
+        scene = Scene.fromImagePair('data/mike1.jpg', 'data/mike2.jpg', intrina=intrin, intrinb=intrin, secondStageThresh=2)
+        scene.save('data/sceneMike.pt')
+    if 0:
+        scene = Scene.fromImagePair('data/strathmore1.jpg', 'data/strathmore2.jpg', intrina=intrin, intrinb=intrin, secondStageThresh=1, siftPoints=5000, loweRatio=.8)
+        scene.save('data/sceneStrathmore.pt')
+    if 1:
+        # f=np.array((3200,3200, 3000*.5, 4000*.5, 3000,4000))*.5 # fxfy cxcy wh
+        scene = Scene.fromImagePair('data/night1.jpg', 'data/night2.jpg', intrina=intrin, intrinb=intrin, secondStageThresh=2, siftPoints=5000, loweRatio=.8)
+        scene.save('data/sceneNight.pt')
+    if 0:
+        scene = Scene.fromImagePair('data/graphPaper/20221020_122347.jpg', 'data/graphPaper/20221020_122359.jpg', intrina=intrin, intrinb=intrin, secondStageThresh=2, siftPoints=500, loweRatio=.9)
+        scene.save('data/scenePaper.pt')
 
     '''
     Okay we have our rectification ... now what how does disparity relate to depth?
