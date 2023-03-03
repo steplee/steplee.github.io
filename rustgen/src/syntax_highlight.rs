@@ -3,6 +3,16 @@ use tree_sitter::Parser;
 use tree_sitter::TreeCursor;
 use std::collections::BTreeMap;
 
+/*
+
+   I use treesitter to parse the code.
+   Then I look for terminal nodes (and treat some non-terminal subtrees as terminals) and
+   create <span>s for them, with appropriate class.
+
+   Each language has different keywords and such, but they share the same CSS colorscheme and classes.
+
+*/
+
 // The kinds are sort of arbitrary. I'll need a list of keywords for each lang, as the output is
 // fine-grained.
 fn dbg_get_kinds(lang: &tree_sitter::Language) -> BTreeMap<String, u16> {

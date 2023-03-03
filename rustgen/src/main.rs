@@ -21,8 +21,7 @@ fn main() {
 
 
     // Testing syntax highlighting.
-    {
-        let code = r#"
+    let code = r#"
     #define x 1
 std::string s = "hello";
     char c = '1';
@@ -32,13 +31,27 @@ int wtice(int x) { if(1) {Foo x;} return x.a().y(2,2).z % 2.; } // com
         "#;
 
         let sh = syntax_highlight::SyntaxHighlighter::new();
-        let code_html = sh.colorize(&code, "cpp");
+        let code_div = sh.colorize(&code, "cpp");
 
-        let html = format!("<html><head><style>{}</style></head></body>\n{}\n</body></html>", sh.shared_stylesheet, code_html);
-        write_file("tmp.html", &html);
-    }
+        let extra_part = r#"
+<p>This is a paragraph.
+It has a newline but no br.
+Again.</p>
+
+<p>This is a paragraph.<br>
+It has a newline AND a br.<br>
+Again.</p>
+
+"#;
+
 
     // Testing markdown
+    // let mdd = markdown_parser::parse_markdown_document("../posts/22_07_14_android_usb.md", None);
+    let mdd = markdown_parser::parse_markdown_document("../posts/22_10_06_pytorch_autodiff_bundle_adjustment.md", None);
+
+    let html = format!("<html><head><style>{}</style></head></body>\n{}\n{}\n{}\n</body></html>", sh.shared_stylesheet, code_div, extra_part, mdd.html);
+
+    write_file("tmp.html", &html);
 
 
     /*
