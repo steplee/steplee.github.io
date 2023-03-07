@@ -34,7 +34,7 @@ Next I worked on a viewer for the optimization process. I didn't want to work wi
 
 Here is some results in a scene with a bad initialization.
 
-[!Results](/res/adba/steps.gif)
+![Results](/res/adba/steps.gif)
 
 
 ## Conjugate Gradients

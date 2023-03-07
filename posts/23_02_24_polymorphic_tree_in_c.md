@@ -1,5 +1,4 @@
-# Polymorhpic Tree in C
-
+# Polymorphic Tree in C
 I was reading some kernel code today to try and see how [BCC](https://github.com/iovisor/bcc) works with USDTs/uprobes and the ftrace/perf kernel subsystems.
 
 I came across an interesting idiom in C for having allowing a balanced binary tree implementation to be used with different types.

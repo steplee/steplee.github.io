@@ -91,19 +91,19 @@ impl<'a,'b> StreamUse<'a,'b> {
     fn read_until_space(&mut self) -> Option<&str> {
         let oj = self.j;
         let n = self.strm.s[self.j..].chars().take_while(|&c| { c!=' ' && c!='\t' && c!='\n' }).count();
-        println!(" - read until space : {} -> {}", self.j, self.j+n);
+        // println!(" - read until space : {} -> {}", self.j, self.j+n);
         self.j += n;
         return Some(&self.strm.s[oj..self.j]);
     }
     fn read_space(&mut self) -> Option<&str> {
         let oj = self.j;
         let n = self.strm.s[self.j..].chars().take_while(|&c| { c==' ' || c=='\t' || c=='\n' }).count();
-        println!(" - read space : {} -> {}", self.j, self.j+n);
+        // println!(" - read space : {} -> {}", self.j, self.j+n);
         self.j += n;
         return Some(&self.strm.s[oj..self.j]);
     }
     fn read_until_end_of_line(&mut self) -> Option<&str> {
-        println!(" - read until eol : {}", self.j);
+        // println!(" - read until eol : {}", self.j);
         let oj = self.j;
         let n = self.strm.s[self.j..].chars().take_while(|&c| { c!='\n' }).count();
         self.j += n;
@@ -140,7 +140,7 @@ fn try_section(strm: &mut Stream) -> Option<Tok> {
             let title = user.read_until_end_of_line().unwrap().to_owned();
 
             user.commit();
-            println!("emit section {} -> {}", start_j, user.j);
+            // println!("emit section {} -> {}", start_j, user.j);
             return Some(Tok::Section(n as u8, title));
         }
     }
@@ -161,8 +161,9 @@ fn try_ticked(strm: &mut Stream) -> Option<Tok> {
                 }
                 if c == '`' {
                     user.commit();
-                    println!("emit ticked {} -> {}", start_j, user.j);
-                    return Some(Tok::Ticked(user.strm.s[start_j..user.j].to_owned()));
+                    // println!("emit ticked {} -> {}", start_j, user.j);
+                    // return Some(Tok::Ticked(user.strm.s[start_j..user.j].to_owned()));
+                    return Some(Tok::Ticked(user.strm.s[start_j+1..user.j-1].to_owned()));
                 }
             }
         }
@@ -187,6 +188,7 @@ fn try_code(strm: &mut Stream) -> Option<Tok> {
     let lang = user.read_until_end_of_line().unwrap().to_owned();
     let nl = user.next().unwrap();
     assert!(nl == '\n');
+    let start_j_code = user.j;
 
     let mut prev1 = '\0';
     let mut prev2 = '\0';
@@ -194,7 +196,7 @@ fn try_code(strm: &mut Stream) -> Option<Tok> {
         if let Some(c) = user.next() {
             if c == '`' && prev1 == '`' && prev2 == '`' {
                 user.commit();
-                return Some(Tok::TripleTicked(lang, user.strm.s[start_j..user.j-3].to_owned()));
+                return Some(Tok::TripleTicked(lang, user.strm.s[start_j_code..user.j-3].to_owned()));
             }
             prev2 = prev1;
             prev1 = c;
@@ -372,7 +374,7 @@ impl<'a> MarkdownParser<'a> {
         let mut strm = Stream{s:txt, i:0};
         for i in 0..9999 {
             if strm.i >= strm.s.len() { break; }
-            println!("loop at i {} chr {:?}", strm.i, strm.s[strm.i..].chars().next().unwrap());
+            // println!("loop at i {} chr {:?}", strm.i, strm.s[strm.i..].chars().next().unwrap());
 
             let start_i = strm.i;
 
@@ -479,11 +481,8 @@ pub fn parse_markdown_document(path: &str, sh: Option<&SyntaxHighlighter>) -> Pa
     // Lower to html.
     let html = lower_doc_to_html(&toks, sh);
 
-    println!("\nTokens:");
-    toks.into_iter().map(|t| println!("{:?}",t)).for_each(drop);
-    println!("");
-
-    println!("\nHtml:\n{}", html);
+    // println!("\nTokens:"); toks.into_iter().map(|t| println!("{:?}",t)).for_each(drop); println!("");
+    // println!("\nHtml:\n{}", html);
 
     return ParsedMarkdownDocument {
         meta: meta,

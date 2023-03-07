@@ -31,13 +31,13 @@ fn dbg_get_kinds(lang: &tree_sitter::Language) -> BTreeMap<String, u16> {
 fn visit(c:&mut TreeCursor, src: &[u8], f: &mut dyn FnMut(&tree_sitter::Node) -> ()) {
     let node = c.node();
     let s = node.utf8_text(src).unwrap_or("").to_string();
-    println!("s: {} {} ({}/{}) {}", node.is_named() as u8, node.child_count(), node.kind(),node.kind_id(), s);
+    // println!("s: {} {} ({}/{}) {}", node.is_named() as u8, node.child_count(), node.kind(),node.kind_id(), s);
 
     if node.child_count() == 0 ||
        node.kind() == "preproc_def" ||
        node.kind() == "string_literal" ||
-       node.kind() == "char_literal"
-       {
+       node.kind() == "char_literal" {
+        println!("s: {} {} ({}/{}) {}", node.is_named() as u8, node.child_count(), node.kind(),node.kind_id(), s);
         f(&node);
     } else if c.goto_first_child() {
         visit(c,src, f);
@@ -63,39 +63,35 @@ impl SyntaxHighlighter {
     pub fn new() -> SyntaxHighlighter {
 
         let shared_stylesheet = String::from(r#"
-body {
-    background-color: #111;
-    color: #eee;
-}
-.kw {
+.c_kw {
     color: #aca;
     font-weight: bold;
 }
-.op {
+.c_op {
     color: #99f;
 }
-.vr {
+.c_vr {
     color: #f99;
 }
-.ty {
+.c_ty {
     color: #99e;
 }
-.st {
+.c_st {
     color: olive;
 }
-.fi {
+.c_fi {
     color: #e88;
 }
-.nl {
+.c_nl {
     color: orange;
 }
-.co {
+.c_co {
     color: #77a;
 }
-.pp {
+.c_pp {
     color: #97a;
 }
-.mo {
+.c_mo {
     color: #a7e;
 }
 .code {
@@ -130,16 +126,16 @@ body {
             let modules = vec!["namespace_identifier"];
 
             let pairs = [
-                (keywords,"kw"),
-                (types,"ty"),
-                (variables,"vr"),
-                (operators,"op"),
-                (strings,"st"),
-                (literals,"nl"),
-                (field_ids,"fi"),
-                (comments,"co"),
-                (modules,"mo"),
-                (preproc,"pp"),
+                (keywords,"c_kw"),
+                (types,"c_ty"),
+                (variables,"c_vr"),
+                (operators,"c_op"),
+                (strings,"c_st"),
+                (literals,"c_nl"),
+                (field_ids,"c_fi"),
+                (comments,"c_co"),
+                (modules,"c_mo"),
+                (preproc,"c_pp"),
             ];
             for (toks,code) in pairs.iter() {
                 for &kw in toks.iter() {
@@ -172,16 +168,16 @@ body {
             // let modules = vec!["namespace_identifier"];
 
             let pairs = [
-                (keywords,"kw"),
-                (types,"ty"),
-                (variables,"vr"),
-                (operators,"op"),
-                (strings,"st"),
-                (literals,"nl"),
-                (field_ids,"fi"),
-                (comments,"co"),
-                // (modules,"mo"),
-                (preproc,"pp"),
+                (keywords,"c_kw"),
+                (types,"c_ty"),
+                (variables,"c_vr"),
+                (operators,"c_op"),
+                (strings,"c_st"),
+                (literals,"c_nl"),
+                (field_ids,"c_fi"),
+                (comments,"c_co"),
+                // (modules,"c_mo"),
+                (preproc,"c_pp"),
             ];
             for (toks,code) in pairs.iter() {
                 for &kw in toks.iter() {
@@ -190,7 +186,7 @@ body {
                     }
                 }
             }
-            classes_per_lang.push((vec![String::from("CPP"),String::from("C++")], lang_classes));
+            classes_per_lang.push((vec![String::from("c")], lang_classes));
         }
 
 
@@ -247,7 +243,7 @@ body {
         }
 
 
-        let lang_classes: &BTreeMap<u16,String> = self.get_lang_classes("C++").unwrap();
+        let lang_classes: &BTreeMap<u16,String> = self.get_lang_classes(&lang).expect(&format!("language '{}' not supported", lang));
 
         // Build final string.
         let mut out:String = String::new();
