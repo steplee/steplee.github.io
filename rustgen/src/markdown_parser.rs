@@ -16,6 +16,8 @@ use std::collections::BTreeMap;
 
    A better parser would handle without this repetition by recursive descent etc.
 
+   FIXME: Do not support ul/ol yet, nor '>' quotes
+
 */
 
 pub struct ParsedMarkdownDocument {

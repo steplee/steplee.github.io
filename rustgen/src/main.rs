@@ -163,9 +163,6 @@ fn main() {
 </body>
 "#);
         let html = format!("<html><head>{extra_head_for_posts}</head>{main_content}</html>");
-        // let post_title = post.rsplit("/").next().unwrap();
-        // let post_title = post_title.split(".").next().unwrap();
-        // write_file(&format!("out/{}.html",post_title), &html);
         let html_path = &post.html_path;
         write_file(&html_path, &html);
     }
@@ -202,19 +199,6 @@ fn main() {
         index_html += "   </ul></li>";
     }
 
-
-    /*
-    // Write index document.
-    let mut index_html = "<ul class=\"post-list\">\n".to_owned();
-    index.posts.sort_by(|a,b| b.meta.publish_date.as_ref().unwrap().cmp(a.meta.publish_date.as_ref().unwrap()));
-    for post in index.posts.iter_mut() {
-        let post_title = &post.meta.title.as_ref().unwrap();
-        let post_date = &post.meta.publish_date.as_ref().unwrap();
-        let post_url = &post.html_path;
-        index_html += &format!("<li class=\"post-item\"> <span class=\"post-date\">{post_date}</span> <a href=\"{post_url}\">{post_title}</a></li>");
-    }
-    index_html += "</ul>\n";
-    */
 
     let index_content = format!(r#"
 <body>
