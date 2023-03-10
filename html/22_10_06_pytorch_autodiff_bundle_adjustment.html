@@ -1,193 +1,80 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <title>Pytorch Autodiff Bundle Adjustment</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"> <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Jura&family=Roboto:wght@400&display=swap" rel="stylesheet">
+<html><head>
+    <link rel="preconnect" href="https://fonts.googleapis.com"> <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Jura&family=Roboto:wght@400&display=swap" rel="stylesheet">
 
-    <link href="../res/main.css" rel="stylesheet">
-    <link href="../res/boostrap.darkly.css" rel="stylesheet">
-    <link href="../res/pygments.css" rel="stylesheet">
-    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6" type="text/javascript"></script>
-    <script async="async" id="MathJax-script" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js" type="text/javascript"></script>
-  </head>
-  <body>
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-  <div class="container-fluid">
-    <a class="navbar-brand" href="#">Navbar</a>
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarColor02" aria-controls="navbarColor02" aria-expanded="false" aria-label="Toggle navigation">
-      <span class="navbar-toggler-icon"></span>
-    </button>
+    <script type="text/javascript" src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js" async></script>
 
-    <div class="collapse navbar-collapse" id="navbarColor02">
-      <ul class="navbar-nav me-auto">
-        <li class="nav-item">
-          <a class="nav-link active" href="../index.html">Blog
-            <span class="visually-hidden">(current)</span>
-          </a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link" href="https://github.com/steplee">GitHub</a>
-        </li>
-
-        <!-- This is not working -->
-        <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle" data-bs-toggle="dropdown" href="#" role="button" aria-haspopup="true" aria-expanded="false" id="dropdownMenuButton1" data-toggle="dropdown1">Links</a>
-          <div class="dropdown-menu" aria-labelledby="dropdownMenuButton1" id="dropdown1">
-            <a class="dropdown-item" href="https://www.shadertoy.com/user/stephenl7797">ShaderToy</a>
-            <a class="dropdown-item" href="https://www.shadertoy.com/user/stephenl7797">ShaderToy</a>
-          </div>
-        </li>
-
-      </ul>
-    </div>
-  </div>
-</nav>
+    <link rel="stylesheet" href="../res/boostrap.darkly.css">
+    <link rel="stylesheet" href="../res/main.css">
+    <link rel="stylesheet" href="../res/code.css">
+</head>
+<body>
     
-<div  id="mainImage"></div>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+    <div class="container-fluid">
+        <a class="navbar-brand" href="#">Navbar</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarColor02" aria-controls="navbarColor02" aria-expanded="false" aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon"></span>
+        </button>
+
+        <div class="collapse navbar-collapse" id="navbarColor02">
+        <ul class="navbar-nav me-auto">
+            <li class="nav-item">
+            <a class="nav-link active" href="../index.html">Blog
+                <span class="visually-hidden">(current)</span>
+            </a>
+            </li>
+            <li class="nav-item">
+            <a class="nav-link" href="https://github.com/steplee">GitHub</a>
+            </li>
+
+            <!-- This is not working -->
+            <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" data-bs-toggle="dropdown" href="#" role="button" aria-haspopup="true" aria-expanded="false" id="dropdownMenuButton1" data-toggle="dropdown1">Links</a>
+            <div class="dropdown-menu" aria-labelledby="dropdownMenuButton1" id="dropdown1">
+                <a class="dropdown-item" href="https://www.shadertoy.com/user/stephenl7797">ShaderToy</a>
+                <a class="dropdown-item" href="https://www.shadertoy.com/user/stephenl7797">ShaderToy</a>
+            </div>
+            </li>
+
+        </ul>
+        </div>
+    </div>
+    </nav>
+
+
+    <div id="mainImage"></div>
 
     <div class="container">
-      <h1>
-        <span>AD BA</span>
-      </h1>
-      <p>
-        <span>I had off today and decided to explore how far I could get using some of pytorch's new features in creating a simple Bundle Adjuster in pure python.
-</span>
-      </p>
-      <p>
-        <span> &gt; Code is </span>
-        <a href="https://github.com/steplee/steplee.github.io/tree/master/extraPages/adba">here</a>
-        <span>
-</span>
-      </p>
-      <p>
-        <span>I've used the popular Ceres and g2o libraries for similar things in the past.
-</span>
-      </p>
-      <p>
-        <span>I even tried to code up a BA myself in C++, but my interest waned after a day or two of slow progress.
-</span>
-      </p>
-      <p>
-        <span>But it was more fun this time around with pytorch. Within a day I got some nice results and even built a point-and-line vizualizer for it, in the spirit of pixel shaders but using pytorch because why not?
-</span>
-      </p>
-      <h2>
-        <span>First try</span>
-      </h2>
-      <p>
-        <span>My first initial protoype was to </span>
-        <span class="backticked">torch.autograd.functional.jacobian</span>
-        <span> to get the needed jacobian matrices, pack them in a dense matrix, and solve the normal equations.
-</span>
-      </p>
-      <p>
-        <span>This works, but it required a lot of python loops and individual invotaions of the jacobian function. It was cripplingly slow, and there was no way to vectorize out of it.
-</span>
-      </p>
-      <p>
-        <span>Not only that but using dense matrices was not going to scale. So I switched to actually forming a sparse graph, and using pytorch's sparse matrix types to help out.
-</span>
-      </p>
-      <p>
-        <span>Pytorch's </span>
-        <span class="backticked">sparse_coo_matrix</span>
-        <span> is amazingly useful. I've used it for all kinds of non-standard things, like as a replacement to an octree, where I only needed the sum of values contained in subnodes, and to vectorize the cluster-mean computation step of the kmeans algorithm. Here I used it more for it's typical use case as storing a sparse matrix.
-</span>
-      </p>
-      <p>
-        <span>The downside is that </span>
-        <span class="backticked">torch.linalg.solve</span>
-        <span> does not support sparse matrices, so I still need to densify it. Suprisingly the densification and solve even for 3000^2 sized matrices is not a bottleneck (just a few milliseconds).
-</span>
-      </p>
-      <p>
-        <span>When this was a bottleneck, the plan is to directly pass the sparse representation to an actual sparse matrix solver.
-</span>
-      </p>
-      <h2>
-        <span>Using functorch</span>
-      </h2>
-      <p>
-        <span>So calling the autograd jacobian function lots of times is slow. Luckily pytorch introduced new features in </span>
-        <span class="backticked">functorch</span>
-        <span>, which add Jax-like capability. I've used Jax before to code up an EKF and it was really nice. Unfortunately at the time it was not supported on ARM, where I wanted to use it, and it required building TensorFlow, which was insufferable.
-</span>
-      </p>
-      <p>
-        <span>With functorch, you can transform functions using an explicit vectorization higher-order function called </span>
-        <span class="backticked">vmap</span>
-        <span>. You can also get jacobian-vector products, which I'll talk about below. For now the important features are </span>
-        <span class="backticked">vmap</span>
-        <span> and </span>
-        <span class="backticked">jacfwd</span>
-        <span>/</span>
-        <span class="backticked">jacrev</span>
-        <span>. </span>
-        <span class="backticked">jacfwd</span>
-        <span> allows getting the jacobian matrices of a function, and doing it for multiple inputs if desired. Combining </span>
-        <span class="backticked">vmap</span>
-        <span> and </span>
-        <span class="backticked">jacfwd</span>
-        <span> is exactly what we need to do to avoid the bottleneck in the previous approach. Figuring out how to mix them properly, and how to deciper the rank-6 resulting tensor took me a while.
-</span>
-      </p>
-      <p>
-        <span>All in all, the full process is very simple, an with the functorch features, suprisingly efficient.
-</span>
-      </p>
-      <p>
-        <span>In fact the current bottleneck is filling in the sparse graph, which I currently do in a nested python loop and with appending a bunch of numbers to python lists.
-</span>
-      </p>
-      <p>
-        <span>This is greay news, because this step could be easily optimized (in a C snippet, or hopefully with an easy to use JIT compiler like numba)
-</span>
-      </p>
-      <p>
-        <span>One downside to the functorch/jax approach is that it typically requires a fixed batch size. Specifically, every camera must observed the same number of points (otherwise we can't vectorize out the cameras). This is not a huge issue though, you can just use a large enough axis length to fit the camera with the most point observations, and zero out any invalid data later. Or do that, but with a small number groups.
-</span>
-      </p>
-      <p>
-        <span>Next I worked on a viewer for the optimization process. I didn't want to work with the same OpenGL code I have a million times, so I worked on a pytorch cuda tensor based class. The only difficult part was copying a 2d 'distanceToLine' function from some old GLSL code and vectorizing it with pytorch.
-</span>
-      </p>
-      <p>
-        <span>Here is some results in a scene with a bad initialization.
-</span>
-      </p>
-      <p>
-        <a href="/res/adba/steps.gif">!Results</a>
-        <span>
-</span>
-      </p>
-      <h2>
-        <span>Conjugate Gradients</span>
-      </h2>
-      <p>
-        <span>Even if I allow a sparse optimizer to solve </span>
-        <span class="backticked">J.T @ J</span>
-        <span>, it is still expensive to form it for large systems. The Conjugate Gradient algorithm avoids the normal equations, and I believe is the preferred method in BA.
-</span>
-      </p>
-      <p>
-        <span>I believe the </span>
-        <span class="backticked">jvp</span>
-        <span> and </span>
-        <span class="backticked">vjp</span>
-        <span> functions from functorch/jax could be used too, to avoid any large stacked-jacobian matrix.
-</span>
-      </p>
-      <h2>
-        <span>Robustness</span>
-      </h2>
-      <p>
-        <span>A huge desiderada for a BA system is robustness. Currently this assumes no outliers and has no robust loss functions. That would probably not be hard, because of how easy everything is with AD!
-</span>
-      </p>
-      <h1>
-        <span>TODO: Finish writing this</span>
-      </h1>
+        <br>
+<h1>AD BA</h1><br>
+<p>I had off today and decided to explore how far I could get using some of pytorch's new features in creating a simple Bundle Adjuster in pure python.</p><br>
+<p> > Code is <a href="https://github.com/steplee/steplee.github.io/tree/master/extraPages/adba">here</a></p><br>
+<p>I've used the popular Ceres and g2o libraries for similar things in the past.</p><p>I even tried to code up a BA myself in C++, but my interest waned after a day or two of slow progress.</p><p>But it was more fun this time around with pytorch. Within a day I got some nice results and even built a point-and-line vizualizer for it, in the spirit of pixel shaders but using pytorch because why not?</p><br>
+<br>
+<h2>First try</h2><p>My first initial protoype was to <span class="ticked">torch.autograd.functional.jacobian</span> to get the needed jacobian matrices, pack them in a dense matrix, and solve the normal equations.</p><p>This works, but it required a lot of python loops and individual invotaions of the jacobian function. It was cripplingly slow, and there was no way to vectorize out of it.</p><br>
+<p>Not only that but using dense matrices was not going to scale. So I switched to actually forming a sparse graph, and using pytorch's sparse matrix types to help out.</p><br>
+<p>Pytorch's <span class="ticked">sparse_coo_matrix</span> is amazingly useful. I've used it for all kinds of non-standard things, like as a replacement to an octree, where I only needed the sum of values contained in subnodes, and to vectorize the cluster-mean computation step of the kmeans algorithm. Here I used it more for it's typical use case as storing a sparse matrix.</p><br>
+<p>The downside is that <span class="ticked">torch.linalg.solve</span> does not support sparse matrices, so I still need to densify it. Suprisingly the densification and solve even for 3000^2 sized matrices is not a bottleneck (just a few milliseconds).</p><p>When this was a bottleneck, the plan is to directly pass the sparse representation to an actual sparse matrix solver.</p><br>
+<br>
+<h2>Using functorch</h2><p>So calling the autograd jacobian function lots of times is slow. Luckily pytorch introduced new features in <span class="ticked">functorch</span>, which add Jax-like capability. I've used Jax before to code up an EKF and it was really nice. Unfortunately at the time it was not supported on ARM, where I wanted to use it, and it required building TensorFlow, which was insufferable.</p><br>
+<p>With functorch, you can transform functions using an explicit vectorization higher-order function called <span class="ticked">vmap</span>. You can also get jacobian-vector products, which I'll talk about below. For now the important features are <span class="ticked">vmap</span> and <span class="ticked">jacfwd</span>/<span class="ticked">jacrev</span>. <span class="ticked">jacfwd</span> allows getting the jacobian matrices of a function, and doing it for multiple inputs if desired. Combining <span class="ticked">vmap</span> and <span class="ticked">jacfwd</span> is exactly what we need to do to avoid the bottleneck in the previous approach. Figuring out how to mix them properly, and how to deciper the rank-6 resulting tensor took me a while.</p><br>
+<p>All in all, the full process is very simple, an with the functorch features, suprisingly efficient.</p><p>In fact the current bottleneck is filling in the sparse graph, which I currently do in a nested python loop and with appending a bunch of numbers to python lists.</p><p>This is greay news, because this step could be easily optimized (in a C snippet, or hopefully with an easy to use JIT compiler like numba)</p><br>
+<p>One downside to the functorch/jax approach is that it typically requires a fixed batch size. Specifically, every camera must observed the same number of points (otherwise we can't vectorize out the cameras). This is not a huge issue though, you can just use a large enough axis length to fit the camera with the most point observations, and zero out any invalid data later. Or do that, but with a small number groups.</p><br>
+<p>Next I worked on a viewer for the optimization process. I didn't want to work with the same OpenGL code I have a million times, so I worked on a pytorch cuda tensor based class. The only difficult part was copying a 2d 'distanceToLine' function from some old GLSL code and vectorizing it with pytorch.</p><br>
+<p>Here is some results in a scene with a bad initialization.</p><br>
+<p><image src="/res/adba/steps.gif">Results</image></p><br>
+<br>
+<br>
+<h2>Conjugate Gradients</h2><br>
+<p>Even if I allow a sparse optimizer to solve <span class="ticked">J.T @ J</span>, it is still expensive to form it for large systems. The Conjugate Gradient algorithm avoids the normal equations, and I believe is the preferred method in BA.</p><p>I believe the <span class="ticked">jvp</span> and <span class="ticked">vjp</span> functions from functorch/jax could be used too, to avoid any large stacked-jacobian matrix.</p><br>
+<br>
+<h2>Robustness</h2><p>A huge desiderada for a BA system is robustness. Currently this assumes no outliers and has no robust loss functions. That would probably not be hard, because of how easy everything is with AD!</p><br>
+<br>
+<h1>TODO: Finish writing this</h1><br>
+
     </div>
-  </body>
+
+</body>
 </html>

@@ -1,81 +1,57 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <title>Steplee Blog</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"> <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Jura&family=Roboto:wght@400&display=swap" rel="stylesheet">
+<html><head>
+    <link rel="preconnect" href="https://fonts.googleapis.com"> <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Jura&family=Roboto:wght@400&display=swap" rel="stylesheet">
 
-    <link href="res/main.css" rel="stylesheet">
-    <link href="res/boostrap.darkly.css" rel="stylesheet">
-    <link href="res/pygments.css" rel="stylesheet">
-  </head>
-  <body>
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-  <div class="container-fluid">
-    <a class="navbar-brand" href="#">Navbar</a>
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarColor02" aria-controls="navbarColor02" aria-expanded="false" aria-label="Toggle navigation">
-      <span class="navbar-toggler-icon"></span>
-    </button>
+    <script type="text/javascript" src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js" async></script>
 
-    <div class="collapse navbar-collapse" id="navbarColor02">
-      <ul class="navbar-nav me-auto">
-        <li class="nav-item">
-          <a class="nav-link active" href="index.html">Blog
-            <span class="visually-hidden">(current)</span>
-          </a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link" href="https://github.com/steplee">GitHub</a>
-        </li>
-
-        <!-- This is not working -->
-        <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle" data-bs-toggle="dropdown" href="#" role="button" aria-haspopup="true" aria-expanded="false" id="dropdownMenuButton1" data-toggle="dropdown1">Links</a>
-          <div class="dropdown-menu" aria-labelledby="dropdownMenuButton1" id="dropdown1">
-            <a class="dropdown-item" href="https://www.shadertoy.com/user/stephenl7797">ShaderToy</a>
-            <a class="dropdown-item" href="https://www.shadertoy.com/user/stephenl7797">ShaderToy</a>
-          </div>
-        </li>
-
-      </ul>
-    </div>
-  </div>
-</nav>
+    <link rel="stylesheet" href="./res/boostrap.darkly.css">
+    <link rel="stylesheet" href="./res/main.css">
+    <link rel="stylesheet" href="./res/code.css">
+</head>
+<body>
     
-<div  id="mainImage"></div>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+    <div class="container-fluid">
+        <a class="navbar-brand" href="#">Navbar</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarColor02" aria-controls="navbarColor02" aria-expanded="false" aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon"></span>
+        </button>
+
+        <div class="collapse navbar-collapse" id="navbarColor02">
+        <ul class="navbar-nav me-auto">
+            <li class="nav-item">
+            <a class="nav-link active" href="../index.html">Blog
+                <span class="visually-hidden">(current)</span>
+            </a>
+            </li>
+            <li class="nav-item">
+            <a class="nav-link" href="https://github.com/steplee">GitHub</a>
+            </li>
+
+            <!-- This is not working -->
+            <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" data-bs-toggle="dropdown" href="#" role="button" aria-haspopup="true" aria-expanded="false" id="dropdownMenuButton1" data-toggle="dropdown1">Links</a>
+            <div class="dropdown-menu" aria-labelledby="dropdownMenuButton1" id="dropdown1">
+                <a class="dropdown-item" href="https://www.shadertoy.com/user/stephenl7797">ShaderToy</a>
+                <a class="dropdown-item" href="https://www.shadertoy.com/user/stephenl7797">ShaderToy</a>
+            </div>
+            </li>
+
+        </ul>
+        </div>
+    </div>
+    </nav>
+
+
+    <div id="mainImage"></div>
+
 
     <div class="container">
-      <div class="page-header">
-        <div class="col-lg-8 col-md-7 col-sm-6"></div>
-      </div>
-      <div class="postList">
-        <h2>Posts</h2>
-        <ul>
-          <li>
-            <a class="postLink" href="html/22_10_06_pytorch_autodiff_bundle_adjustment.html">Pytorch Autodiff Bundle Adjustment</a>
-          </li>
-        </ul>
-        <ul>
-          <li>
-            <a class="postLink" href="html/22_08_03_ekf_and_gauss_newton.html">Ekf And Gauss Newton</a>
-          </li>
-        </ul>
-        <ul>
-          <li>
-            <a class="postLink" href="html/23_02_24_polymorphic_tree_in_c.html">Polymorphic Tree In C</a>
-          </li>
-        </ul>
-        <ul>
-          <li>
-            <a class="postLink" href="html/23_01_21_expanding_files_with_fallocate.html">Expanding Files With Fallocate</a>
-          </li>
-        </ul>
-        <ul>
-          <li>
-            <a class="postLink" href="html/22_07_14_android_usb.html">Android Usb</a>
-          </li>
-        </ul>
-      </div>
+        <h1>Posts</h1>
+        <ul class="post-list">
+   <li>2023<ul>       <li class="post-item"> <span class="post-date">2023/02/24</span> <a href="./html/23_02_24_polymorphic_tree_in_c.html">Polymorphic Tree in C</a></li>       <li class="post-item"> <span class="post-date">2023/01/21</span> <a href="./html/23_01_21_expanding_files_with_fallocate.html">Expanding files with fallocate</a></li>   </ul></li>   <li>2022<ul>       <li class="post-item"> <span class="post-date">2022/10/06</span> <a href="./html/22_10_06_pytorch_autodiff_bundle_adjustment.html">AD BA</a></li>       <li class="post-item"> <span class="post-date">2022/08/03</span> <a href="./html/22_08_03_ekf_and_gauss_newton.html">Relationship Between the EKF and Gauss-Newton Method</a></li>       <li class="post-item"> <span class="post-date">2022/07/14</span> <a href="./html/22_07_14_android_usb.html">Sending Data With Android and USB</a></li>   </ul></li>
     </div>
-  </body>
+
+</body>
 </html>

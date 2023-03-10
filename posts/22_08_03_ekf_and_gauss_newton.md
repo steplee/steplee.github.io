@@ -1,3 +1,8 @@
+```meta
+title: Relationship Between the EKF and Gauss-Newton Method
+date: 2022/08/03
+tags: math, optimization, state estimation, ekf
+```
 # Relationship Between the EKF and Gauss-Newton Method
 
 It's no secret that the EKF is related to Gauss-Newton optimization. They are both used to solve non-linear least-squares problems. Typically Kalman Filters are used in state-estimation problems where there is a time aspect. Gauss-Newton is more popular in static optimization problems like bundle adjustment and function fitting. There are academic papers exploring comparing the two, but I want to write a post to try and build more intuition. Both EKF and GN can be derived from first principles using the [Matrix Inversion Lemma](https://en.wikipedia.org/wiki/Woodbury_matrix_identity), but that is a little impractical.
@@ -16,9 +21,7 @@ There is no free lunch -- you can't just keep making measurments/conditioning in
 Coming back to Earth, sometimes it is easier for me to reason about the measurement step in GN than in the EKF formulation. It's easier to replace the measurement step while keeping the standard time step.
 
 ###### EKF Step
-$$
-x_1 = x_0 + PH^T(HPH^T+R)^{-1} \cdot \hat{y}
-$$
+$$ x_1 = x_0 + PH^T(HPH^T+R)^{-1} \cdot \hat{y} $$
 
 ###### GN Step
 $$

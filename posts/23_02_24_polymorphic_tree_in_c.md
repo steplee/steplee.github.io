@@ -1,3 +1,8 @@
+```meta
+title: Polymorphic Tree in C
+date: 2023/02/24
+tags: programming, linux, data-structures
+```
 # Polymorphic Tree in C
 I was reading some kernel code today to try and see how [BCC](https://github.com/iovisor/bcc) works with USDTs/uprobes and the ftrace/perf kernel subsystems.
 

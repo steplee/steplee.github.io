@@ -37,7 +37,7 @@ fn visit(c:&mut TreeCursor, src: &[u8], f: &mut dyn FnMut(&tree_sitter::Node) ->
        node.kind() == "preproc_def" ||
        node.kind() == "string_literal" ||
        node.kind() == "char_literal" {
-        println!("s: {} {} ({}/{}) {}", node.is_named() as u8, node.child_count(), node.kind(),node.kind_id(), s);
+        // println!("s: {} {} ({}/{}) {}", node.is_named() as u8, node.child_count(), node.kind(),node.kind_id(), s);
         f(&node);
     } else if c.goto_first_child() {
         visit(c,src, f);
@@ -109,9 +109,7 @@ impl SyntaxHighlighter {
         {
             let lang = tree_sitter_cpp::language();
             let kind_map = dbg_get_kinds(&lang);
-            for (k,v) in kind_map.iter() {
-                println!(" - {} -> {}", v,k);
-            }
+            // for (k,v) in kind_map.iter() { println!(" - {} -> {}", v,k); }
             let mut lang_classes: BTreeMap<u16,String> = BTreeMap::new();
             // lang_classes.insert(266 as u16, String::from("fi"));
             let keywords = vec!["if", "else", "break", "for", "class", "struct", "try", "catch", "goto", "const", "register", "auto", "return", "new", "delete", "static", "template", "constexpr", "using", "namespace", "switch", "case"];
@@ -151,9 +149,7 @@ impl SyntaxHighlighter {
         {
             let lang = tree_sitter_c::language();
             let kind_map = dbg_get_kinds(&lang);
-            for (k,v) in kind_map.iter() {
-                println!(" - {} -> {}", v,k);
-            }
+            // for (k,v) in kind_map.iter() { println!(" - {} -> {}", v,k); }
             let mut lang_classes: BTreeMap<u16,String> = BTreeMap::new();
             // lang_classes.insert(266 as u16, String::from("fi"));
             let keywords = vec!["if", "else", "break", "for", "struct", "goto", "const", "register", "auto", "return", "static", "constexpr", "switch", "case"];
@@ -270,7 +266,7 @@ impl SyntaxHighlighter {
                 out = out + &txt;
         }
 
-        println!("final: {}", out);
+        // println!("final: {}", out);
 
         // Add proper whitespace at start of lines.
         let mut lines = out.split("\n");

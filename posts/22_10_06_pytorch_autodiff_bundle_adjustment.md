@@ -1,3 +1,8 @@
+```meta
+title: AD BA
+date: 2022/10/06
+tags: pytorch, math, optimization, least-squares, bundle adjustment, autodiff
+```
 # AD BA
 
 I had off today and decided to explore how far I could get using some of pytorch's new features in creating a simple Bundle Adjuster in pure python.
@@ -46,3 +51,4 @@ I believe the `jvp` and `vjp` functions from functorch/jax could be used too, to
 A huge desiderada for a BA system is robustness. Currently this assumes no outliers and has no robust loss functions. That would probably not be hard, because of how easy everything is with AD!
 
 # TODO: Finish writing this
+

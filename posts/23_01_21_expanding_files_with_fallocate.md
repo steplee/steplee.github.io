@@ -1,3 +1,8 @@
+```meta
+title: Expanding files with fallocate
+date: 2023/01/21
+tags: programming, os, mmap
+```
 # Expanding Files with `fallocate`
 I discovered a new trick the other week. You can insert wholes into files using `fallocate` with the `falloc_fl_insert_range` mode. The amazing catch is that it even works with `mmap`ed files, and no programmer synchronization nor book-keeping needs to be done!
 

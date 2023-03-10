@@ -1,3 +1,5 @@
+#![allow(unreachable_code)]
+#![allow(unused)]
 
 use cc;
 mod syntax_highlight;
@@ -33,7 +35,7 @@ fn enumerate_posts(path: &str) -> Vec<String> {
         }
     }
 
-    println!("posts {:?}", out);
+    // println!("posts {:?}", out);
 
     return out;
 }
@@ -83,58 +85,64 @@ fn create_index_html(index: &index::BlogIndex, out_dir: &str) {
 
 }
 
+fn parse_and_format_date(date: &str) -> ((u32,u32,u32), String) {
+    let mut s = date.split("/");
+    let y = s.next().expect("a date must include the year");
+    let m = s.next().expect("a date must include the month");
+    let d = s.next().expect("a date must include the day");
+    let mut yi = y.parse::<u32>().expect("failed to parse year as int");
+    let     mi = m.parse::<u32>().expect("failed to month year as int");
+    let     di = d.parse::<u32>().expect("failed to day year as int");
+    if yi < 99 { yi += 2000; }
+    let fmt = format!("{}/{:0>2}/{:0>2}", yi,mi,di);
+    ((yi,mi,di), fmt)
+}
+
 fn main() {
-    // println!("Hello, world!");
-
-
-    // Testing syntax highlighting.
-    /*
-    let code = r#"
-    #define x 1
-std::string s = "hello";
-    char c = '1';
-static int w;
-struct Foo{};
-int wtice(int x) { if(1) {Foo x;} return x.a().y(2,2).z % 2.; } // com
-        "#;
-
-        let code_div = sh.colorize(&code, "cpp");
-
-        let extra_part = r#"
-<p>This is a paragraph.
-It has a newline but no br.
-Again.</p>
-
-<p>This is a paragraph.<br>
-It has a newline AND a br.<br>
-Again.</p>
-
-"#;
-    */
-
     let sh = syntax_highlight::SyntaxHighlighter::new();
 
-    let extra_head = r#"
-    <link rel="stylesheet" href="./res/main.css">
+    let extra_head_for_posts = r#"
+    <link rel="preconnect" href="https://fonts.googleapis.com"> <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Jura&family=Roboto:wght@400&display=swap" rel="stylesheet">
+
+    <script type="text/javascript" src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js" async></script>
+
+    <link rel="stylesheet" href="../res/boostrap.darkly.css">
+    <link rel="stylesheet" href="../res/main.css">
+    <link rel="stylesheet" href="../res/code.css">
+"#;
+    let extra_head_for_index = r#"
+    <link rel="preconnect" href="https://fonts.googleapis.com"> <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Jura&family=Roboto:wght@400&display=swap" rel="stylesheet">
+
+    <script type="text/javascript" src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js" async></script>
+
     <link rel="stylesheet" href="./res/boostrap.darkly.css">
+    <link rel="stylesheet" href="./res/main.css">
     <link rel="stylesheet" href="./res/code.css">
 "#;
 
-    write_file("out/res/code.css", &sh.shared_stylesheet);
+    // write_file("out/res/code.css", &sh.shared_stylesheet);
+    write_file("../res/code.css", &sh.shared_stylesheet);
 
-    let out_path = "out";
+    let local_html_path = "./html";
+    let out_path = "../html";
+    let out_path_root = "../";
 
-    let mut index = index::find_posts("../posts", &out_path);
+    let mut index = index::find_posts("../posts", &out_path, &local_html_path);
 
     for mut post in index.posts.iter_mut() {
         let html_path = &post.html_path;
 
         // Parse markdown.
+        println!(" - Parsing doc '{}'", post.md_path);
         let mdd = markdown_parser::parse_markdown_document(&post.md_path, Some(&sh));
 
         // Fill in metadata on post object.
         post.meta.title = Some(mdd.meta.get("title").expect("meta must include title").clone());
-        post.meta.publish_date = Some(mdd.meta.get("date").expect("meta must include title").clone());
+        post.meta.publish_date = Some(mdd.meta.get("date").expect("meta must include date").clone());
         if let Some(tags) = mdd.meta.get("tags") {
             post.meta.tags = Some(tags.split(",").map(|s| s.to_string()).collect());
         }
@@ -154,7 +162,7 @@ Again.</p>
 
 </body>
 "#);
-        let html = format!("<html><head>{extra_head}</head>{main_content}</html>");
+        let html = format!("<html><head>{extra_head_for_posts}</head>{main_content}</html>");
         // let post_title = post.rsplit("/").next().unwrap();
         // let post_title = post_title.split(".").next().unwrap();
         // write_file(&format!("out/{}.html",post_title), &html);
@@ -163,14 +171,50 @@ Again.</p>
     }
 
 
+
+    use std::collections::BTreeMap;
+    use index::BlogPost;
+    let mut posts_by_year : BTreeMap<u32,Vec<BlogPost>> = BTreeMap::new();
+    for post in index.posts.iter_mut() {
+        let ((y,m,d), s) = parse_and_format_date(&post.meta.publish_date.as_ref().unwrap());
+        post.meta.publish_date = Some(s);
+    }
+    index.posts.sort_by(|a,b| b.meta.publish_date.as_ref().unwrap().cmp(a.meta.publish_date.as_ref().unwrap()));
+    for post in index.posts {
+        let ((y,m,d), s) = parse_and_format_date(&post.meta.publish_date.as_ref().unwrap());
+        match posts_by_year.get_mut(&y) {
+            Some(vec) => vec.push(post),
+            None => {posts_by_year.insert(y, vec![post]);}
+        }
+    }
+    let mut index_html = "<ul class=\"post-list\">\n".to_owned();
+    for (year,posts) in posts_by_year.iter().rev() {
+        index_html += &format!("   <li>{year}<ul>");
+
+        for post in posts.iter() {
+            let post_title = &post.meta.title.as_ref().unwrap();
+            let post_date = &post.meta.publish_date.as_ref().unwrap();
+            let post_url = &post.local_html_path;
+            println!(" - post url '{}'", post_url);
+            index_html += &format!("       <li class=\"post-item\"> <span class=\"post-date\">{post_date}</span> <a href=\"{post_url}\">{post_title}</a></li>");
+        }
+
+        index_html += "   </ul></li>";
+    }
+
+
+    /*
     // Write index document.
     let mut index_html = "<ul class=\"post-list\">\n".to_owned();
+    index.posts.sort_by(|a,b| b.meta.publish_date.as_ref().unwrap().cmp(a.meta.publish_date.as_ref().unwrap()));
     for post in index.posts.iter_mut() {
         let post_title = &post.meta.title.as_ref().unwrap();
         let post_date = &post.meta.publish_date.as_ref().unwrap();
-        index_html += &format!("<li class=\"post-item\"> <span class=\"post-date\">{post_date}</span> {post_title}</li>");
+        let post_url = &post.html_path;
+        index_html += &format!("<li class=\"post-item\"> <span class=\"post-date\">{post_date}</span> <a href=\"{post_url}\">{post_title}</a></li>");
     }
     index_html += "</ul>\n";
+    */
 
     let index_content = format!(r#"
 <body>
@@ -178,13 +222,15 @@ Again.</p>
 
     <div id="mainImage"></div>
 
+
     <div class="container">
+        <h1>Posts</h1>
         {index_html}
     </div>
 
 </body>
 "#);
-    let html = format!("<html><head>{extra_head}</head>{index_content}</html>");
-    write_file(&format!("{}/index.html", out_path), &html);
+    let html = format!("<html><head>{extra_head_for_index}</head>{index_content}</html>");
+    write_file(&format!("{}/index.html", out_path_root), &html);
 
 }

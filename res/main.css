@@ -1,14 +1,25 @@
 
-.code {
-	margin-left: 30px;
-	margin-right: 30px;
+ul li {
+	list-style-type: '\25B6  ';
 }
-.backticked {
-	/* color: #557; */
-    /* background-color: #e9e9f5; */
+ul li li {
+	list-style-type: '- ';
+}
+
+
+.ticked {
 	color: #99b;
     background-color: #112;
     font-family: monospace;
+}
+
+p > .ticked {
+	@extend .ticked;
+	font-size: 14;
+}
+
+.post-date {
+	color: #777;
 }
 
 #mainImage {
@@ -25,6 +36,11 @@
 	margin-bottom: 10px;
 }
 
+.container {
+	margin-bottom: 64px;
+}
+
+
 h1 {
 	margin: 25px;
 	margin-left: 5px;
@@ -36,4 +52,9 @@ h2 {
 
 p {
 	margin-left: 15px;
+	margin-bottom: 0.5rem;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  /*text-decoration: underline;*/
 }

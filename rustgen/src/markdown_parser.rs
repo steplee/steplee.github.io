@@ -4,18 +4,17 @@ use std::collections::BTreeMap;
 
 /*
 
-   Markdown is simple enough that we don't need to seperate lexing from parsing.
-   Also the parsing needn't output a tree.
-   A flat vector of each type-annotated part will do.
+   Markdown is simple enough that we don't really need to seperate lexing from parsing.
+
+   My original impl had nearly no nesting, but you kind of want paragraphs wrapped in html <p>'s, so
+   I had to have a nested type for that (as well as for lists)
 
    There are parts of this that are very inefficent, mainly because each try_* call can only output
    one item. Therefore when we are in try_normal() and we see a possible quoted section, we have check
    if it is valid until the EOL and stop if it is.
    Then the next loop we have to detect the quoted section in try_ticked() all again.
 
-   An better parser would handle without this repetition by recursive descent etc.
-
-   The only recursive part is for the ul/ol lists.
+   A better parser would handle without this repetition by recursive descent etc.
 
 */
 
@@ -32,13 +31,14 @@ struct MarkdownParser<'a> {
 #[derive(Debug)]
 enum Tok {
     Metadata(Vec<(String,String)>), // key-value pairs
-    Section(u8, String),
+    Section(u8, Vec<Tok>),
     Ticked(String),
     TripleTicked(String,String), // (language, code)
     Underscored(String),
     OneStarred(String),
     TwoStarred(String),
     Normal(String),
+    Paragraph(Vec<Tok>),
     Link(String, String), // (label, src)
     Image(String, String), // (label, src)
     Break(),
@@ -58,21 +58,16 @@ struct Stream<'a> {
 struct StreamUse<'a,'b> {
     strm: &'b mut Stream<'a>,
     j: usize,
-    is_beginning_of_line_: bool,
 }
 impl<'a,'b> StreamUse<'a,'b> {
     fn from(strm: &'b mut Stream<'a>) -> StreamUse<'a,'b> {
         let j = strm.i;
-        let is_beginning_of_line_ = (j == 0) || (strm.s[j..j+1].chars().next().unwrap_or('.') == '\n');
-        return StreamUse{strm:strm, j, is_beginning_of_line_};
+        // let is_beginning_of_line_ = (j == 0) || (strm.s[j..j+1].chars().next().unwrap_or('.') == '\n');
+        return StreamUse{strm:strm, j};
     }
 
     fn commit(&mut self) -> () {
         self.strm.i = self.j;
-    }
-
-    fn is_beginning_of_line(&self) -> bool {
-        return self.is_beginning_of_line_;
     }
 
     fn next(&mut self) -> Option<char> {
@@ -106,12 +101,37 @@ impl<'a,'b> StreamUse<'a,'b> {
         // println!(" - read until eol : {}", self.j);
         let oj = self.j;
         let n = self.strm.s[self.j..].chars().take_while(|&c| { c!='\n' }).count();
+        // println!("eol {} -> {}", self.j, self.j+n);
         self.j += n;
         return Some(&self.strm.s[oj..self.j]);
     }
 }
 impl<'a,'b> Drop for StreamUse<'a,'b> {
     fn drop(&mut self) -> () { }
+}
+
+fn strip(s: &str) -> &str {
+    let mut a = 0;
+    let mut b = s.len();
+    let mut cs = s.chars();
+    loop {
+        if let Some(c) = cs.next() {
+            if c == ' ' || c == '\t' {
+                a += 1;
+            } else {break}
+        } else {break}
+    }
+
+    let mut cs = s.chars().rev();
+    loop {
+        if let Some(c) = cs.next() {
+            if c == ' ' || c == '\t' {
+                b -= 1;
+            } else {break}
+        } else {break}
+    }
+    b = s.len();
+    return &s[a..b];
 }
 
 fn try_section(strm: &mut Stream) -> Option<Tok> {
@@ -137,11 +157,43 @@ fn try_section(strm: &mut Stream) -> Option<Tok> {
 
         if n > 0 {
             user.read_space();
-            let title = user.read_until_end_of_line().unwrap().to_owned();
 
-            user.commit();
-            // println!("emit section {} -> {}", start_j, user.j);
-            return Some(Tok::Section(n as u8, title));
+            // FIXME: ALLOW TICKS
+            // let title = user.read_until_end_of_line().unwrap().to_owned();
+            // user.commit();
+            // return Some(Tok::Section(n as u8, vec![Tok::Normal(title)]));
+
+            let mut out = vec![];
+            let mut cur_normal = String::new();
+            let mut cur_ticked = String::new();
+            let mut is_ticked = false;
+            loop {
+                match user.next() {
+                    Some('`') => {
+                        if cur_normal.len() > 0 { out.push(Tok::Normal(cur_normal)); }
+                        if cur_ticked.len() > 0 { out.push(Tok::Ticked(cur_ticked)); }
+                        is_ticked = true;
+                        cur_normal = String::new();
+                        cur_ticked = String::new();
+                    },
+                    Some('\n') => {
+                        if cur_normal.len() > 0 { out.push(Tok::Normal(cur_normal)); }
+                        if cur_ticked.len() > 0 { out.push(Tok::Ticked(cur_ticked)); }
+                        user.j -= 1;
+                        user.commit();
+                        return Some(Tok::Section(n as u8, out));
+                    },
+                    Some(c) => {
+                        if  is_ticked { cur_ticked += &c.to_string(); }
+                        if !is_ticked { cur_normal += &c.to_string(); }
+                    },
+                    None => {
+                        return Some(Tok::Section(n as u8, out));
+                    }
+                }
+            }
+
+
         }
     }
 
@@ -206,6 +258,62 @@ fn try_code(strm: &mut Stream) -> Option<Tok> {
     }
 }
 
+fn try_meta(strm: &mut Stream) -> Option<Tok> {
+    let mut user = StreamUse::from(strm);
+    let start_j = user.j;
+
+    // Make sure we are at a newline symbol.
+    if start_j != 0 {
+        if let Some(c) = user.next() {
+            if c != '\n' { return None }
+        }
+    }
+
+    let c1 = user.next()?;
+    let c2 = user.next()?;
+    let c3 = user.next()?;
+    if c1 != '`' || c2 != '`' || c3 != '`' { return None; }
+    let lang = user.read_until_end_of_line().unwrap().to_owned();
+
+    // The lang must be empty, or 'meta'
+    if !(lang.len() == 0 || lang == "meta") {
+        return None;
+    }
+    // println!("LANG {lang}");
+
+    let nl = user.next().unwrap();
+    assert!(nl == '\n');
+    let start_j_code = user.j;
+
+    let mut kvs = vec![];
+
+    let mut prev1 = '\0';
+    let mut prev2 = '\0';
+    loop {
+        let line = user.read_until_end_of_line();
+        if let Some(line) = line {
+            if line.starts_with("```") {
+                // user.next();
+                while let Some(c) = user.peek() {
+                    if c == '\n' { user.next(); }
+                    else { break; }
+                }
+                user.j-=1;
+                user.commit();
+                return Some(Tok::Metadata(kvs));
+            }
+            else if let Some((k,v)) = line.split_once(":") {
+                let k = strip(k);
+                let v = strip(v);
+                kvs.push((k.to_owned(),v.to_owned()));
+                // println!("meta {k} {v}");
+                user.next();
+            } else {break}
+        }
+    }
+    None
+}
+
 fn try_newline(strm: &mut Stream) -> Option<Tok> {
     let mut user = StreamUse::from(strm);
 
@@ -215,6 +323,24 @@ fn try_newline(strm: &mut Stream) -> Option<Tok> {
             return Some(Tok::Break());
         }
     }
+    None
+}
+
+fn try_double_newline(strm: &mut Stream) -> Option<Tok> {
+    let mut user = StreamUse::from(strm);
+
+    if let Some(c) = user.next() {
+        if c != '\n' {
+            return None
+        }
+    }
+    if let Some(c) = user.peek() {
+        if c == '\n' {
+            user.commit();
+            return Some(Tok::Break());
+        }
+    }
+
     None
 }
 
@@ -269,8 +395,118 @@ fn try_link_or_image(strm: &mut Stream) -> Option<Tok> {
                 }
             }
             last_c = c
+        } else { break }
+    }
+    None
+}
+
+// NOTE: This is for math blocks (inline math require no parsing)
+fn try_mathblock(strm: &mut Stream) -> Option<Tok> {
+    let mut user = StreamUse::from(strm);
+    let start_j = user.j;
+
+    // Make sure we are at a newline symbol.
+    if let Some(c) = user.next() {
+        if c != '\n' { return None }
+    }
+
+    // FIXME: Also handle \[
+    let c1 = user.next()?;
+    let c2 = user.next()?;
+    if c1 != '$' || c2 != '$' { return None; }
+    // let nl = user.next().unwrap();
+    // assert!(nl == '\n');
+    let start_j_code = user.j;
+
+    let mut prev1 = '\0';
+    loop {
+        if let Some(c) = user.next() {
+            if c == '$' && prev1 == '$' {
+                user.commit();
+                return Some(Tok::Paragraph(vec![Tok::Normal(user.strm.s[start_j_code-2..user.j].to_owned())]));
+            }
+            prev1 = c;
+        } else {
+            return None;
         }
     }
+}
+
+fn try_paragraph(strm: &mut Stream) -> Option<Tok> {
+    let mut user = StreamUse::from(strm);
+    let start_j = user.j;
+
+    if let Some(c) = user.peek() {
+        if c != '\n' { return None }
+    }
+
+    user.next(); // new line
+
+    // Find first non-space. If there is atleast one space and if it is a number of it is is a dash, then this is NOT a paragraph.
+    // FIXME: enable this and have try_list consumer at top-level.
+    /*
+    let mut num_spaces = 0;
+    loop {
+        if let Some(c) = user.peek() {
+            if c == '\t' || c == ' ' {
+                num_spaces += 1;
+                user.next();
+            } else {
+                if num_spaces > 0 && (c == '-' || c.is_numeric()) {
+                    return None;
+                } else {
+                    // This is a paragraph.
+                    break;
+                }
+            }
+        } else { break }
+    }
+    */
+
+    // Parse inner elements
+    let mut out = vec![];
+
+    let mut strm2 = Stream{s: user.strm.s, i: user.j};
+
+    for i in 0..999999 {
+
+        if strm2.i >= strm2.s.len() { break; }
+        if let Some(c) = strm2.s[strm2.i..].chars().next() {
+            if c == '\n' { break; }
+        }
+
+        if let Some(tok) = try_ticked(&mut strm2) {
+            out.push(tok);
+            continue;
+        }
+
+        if let Some(tok) = try_link_or_image(&mut strm2) {
+            out.push(tok);
+            continue;
+        }
+
+        if let Some(tok) = try_normal(&mut strm2) {
+            out.push(tok);
+            continue;
+        }
+
+        // if let Some(tok) = try_newline(&mut strm2) {
+            // out.push(tok);
+            // break; // NOTE: Break
+        // }
+
+        panic!("invalid tok in paragraph {}/{}", strm2.i, strm2.s.len());
+    }
+
+    if strm2.i - user.strm.i == 1 {
+        if let Some(c) = strm2.s[user.strm.i..].chars().next() {
+            if c == '\n' { return None }
+        }
+    }
+
+    // println!("push paragraph {} -> {} ({})", user.strm.i, strm2.i, &strm2.s[user.strm.i..strm2.i]);
+    user.strm.i = strm2.i;
+    return Some(Tok::Paragraph(out));
 }
 
 fn try_normal(strm: &mut Stream) -> Option<Tok> {
@@ -298,6 +534,7 @@ fn try_normal(strm: &mut Stream) -> Option<Tok> {
                 if let Some(rest) = user.read_until_end_of_line() {
                     if rest.find('`').is_some() {
                         // This is valid, we have to backup and stop there.
+                        // println!("normal back from tick {} {} {}", start_j, user.j, j_at_open-1);
                         user.j = j_at_open-1;
                         user.commit();
                         return Some(Tok::Normal(user.strm.s[start_j..user.j].to_owned()));
@@ -329,7 +566,7 @@ fn try_normal(strm: &mut Stream) -> Option<Tok> {
                 }
             }
             last_c = c;
-        }
+        } else { break }
     }
     None
 }
@@ -372,23 +609,40 @@ impl<'a> MarkdownParser<'a> {
 
         // More traditional + general scanner based
         let mut strm = Stream{s:txt, i:0};
-        for i in 0..9999 {
+        for i in 0..999999 {
             if strm.i >= strm.s.len() { break; }
             // println!("loop at i {} chr {:?}", strm.i, strm.s[strm.i..].chars().next().unwrap());
 
             let start_i = strm.i;
+
+            if let Some(tok) = try_meta(&mut strm) {
+                out.push(tok);
+                continue;
+            }
 
             if let Some(tok) = try_section(&mut strm) {
                 if start_i != 0 { out.push(Tok::Break()); }
                 out.push(tok);
                 continue;
             }
-            if let Some(tok) = try_ticked(&mut strm) {
+
+            if let Some(tok) = try_mathblock(&mut strm) {
                 out.push(tok);
                 continue;
             }
 
             if let Some(tok) = try_code(&mut strm) {
+                out.push(tok);
+                continue;
+            }
+
+            if let Some(tok) = try_paragraph(&mut strm) {
+                out.push(tok);
+                continue;
+            }
+
+            /*
+            if let Some(tok) = try_ticked(&mut strm) {
                 out.push(tok);
                 continue;
             }
@@ -402,11 +656,19 @@ impl<'a> MarkdownParser<'a> {
                 out.push(tok);
                 continue;
             }
+            */
 
-            if let Some(tok) = try_newline(&mut strm) {
+
+            if let Some(tok) = try_double_newline(&mut strm) {
                 out.push(tok);
                 continue;
             }
+            if let Some(tok) = try_newline(&mut strm) {
+                // Do not push.
+                continue;
+            }
+
+            panic!("some tok not hit (next char {})", &strm.s[strm.i..strm.i+1]);
 
         }
 
@@ -415,14 +677,13 @@ impl<'a> MarkdownParser<'a> {
 
 }
 
-fn lower_doc_to_html(tokens: &Vec<Tok>, sh: Option<&SyntaxHighlighter>) -> String {
+fn lower_doc_to_html(tokens: &Vec<Tok>, sh: Option<&SyntaxHighlighter>, top: bool) -> String {
     let mut html = String::new();
 
     for tok in tokens {
         use Tok::*;
         match tok {
 
-            Section(n,name) => html += &format!("<h{}>{}</h{}>", n, name, n),
             Ticked(s) => html += &format!("<span class=\"ticked\">{}</span>", s),
             TripleTicked(lang,code) => {
                 if sh.is_some() {
@@ -442,9 +703,26 @@ fn lower_doc_to_html(tokens: &Vec<Tok>, sh: Option<&SyntaxHighlighter>) -> Strin
 
             // FIXME: Ul, Ol (recursive)
 
-            _ => {
-                html += &format!("warning, unhandled token\n");
+            // Section(n,name) => html += &format!("<h{}>{}</h{}>", n, name, n),
+            Section(n,inners) => {
+                html += &format!("<h{}>", n);
+                html += &lower_doc_to_html(inners, None, false);
+                html += &format!("</h{}>", n);
             }
+
+            Paragraph(inners) => {
+                html += "<p>";
+                html += &lower_doc_to_html(inners, None, false);
+                html += "</p>";
+            }
+
+            Ul(_) => {}
+            Ol(_) => {}
+
+            // Noop
+            Metadata(_) => {}
+
+            // _ => { html += &format!("warning, unhandled token\n")); }
         }
     }
 
@@ -479,7 +757,7 @@ pub fn parse_markdown_document(path: &str, sh: Option<&SyntaxHighlighter>) -> Pa
     }
 
     // Lower to html.
-    let html = lower_doc_to_html(&toks, sh);
+    let html = lower_doc_to_html(&toks, sh, true);
 
     // println!("\nTokens:"); toks.into_iter().map(|t| println!("{:?}",t)).for_each(drop); println!("");
     // println!("\nHtml:\n{}", html);
@@ -516,9 +794,9 @@ string s = "``";
 
     let mdp = MarkdownParser {sh: None};
     let toks = mdp.lex(&src);
-    println!("\nTokens:");
-    toks.into_iter().map(|t| println!("{:?}",t)).for_each(drop);
-    println!("");
+    // println!("\nTokens:");
+    // toks.into_iter().map(|t| println!("{:?}",t)).for_each(drop);
+    // println!("");
 
     let s = "hello world!!";
     let mut strm = Stream{s:s, i:0};
