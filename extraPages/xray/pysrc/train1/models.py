@@ -139,12 +139,16 @@ class AttnBlock1(nn.Module):
             nn.Conv1d(cin, cout, 1, bias=False),
             nn.BatchNorm1d(cout),
         )
+        self.w = None
+        self.keepWeight = True
+
     def forward(self, a):
         a1 = a.permute(2,0,1)
         b,w = self.attn(a1,a1,a1)
         b = b.permute(1,2,0)
         c = self.net(b)
         d = self.relu(self.through(a) + c)
+        if self.keepWeight: self.w = w
         return d
 
 class AttnNet1(nn.Module):
@@ -162,10 +166,13 @@ class AttnNet1(nn.Module):
         Cz = meta['Cz'] # size of each subvector
         Nz = Z // Cz # num sub vectors
         self.conditional = True
-        assert Nz == self.L, 'AttnNet1 only works when Nz == L (conditional subvectors = state subvectors)'
+        # assert Nz == self.L, 'AttnNet1 only works when Nz == L (conditional subvectors = state subvectors)'
+        self.Nz, self.Cz = self.Nz, self.Cz
 
         Cposition = 1
-        cinEach = 3 + ct + Cposition + Z//self.L
+        # cinEach = 3 + ct + Cposition + Z//self.L
+        cinEach = 3 + ct + Cposition
+        selfcinEach = cinEach
         # print(cinEach,'=',3,ct,Cposition,Z//S)
 
         self.pre = nn.Sequential(
@@ -183,7 +190,7 @@ class AttnNet1(nn.Module):
 
 
     def forward(self, s, t, z):
-        (B,S),L = s.size(), self.L
+        (B,S),L,Lz = s.size(), self.L,self.Nz
 
 
         # position encoding is just a number from [-1,1].
@@ -198,11 +205,18 @@ class AttnNet1(nn.Module):
             aa.view(B,L,3),
             tt.view(B,1,-1).repeat(1,L,1),
             pos.view(1,L,-1).repeat(B,1,1),
-            z.view(B,L,-1)
+            # z.view(B,L,-1)
         ), -1) \
             .permute(0,2,1) # NL(S+T+P+Z) => BCL
             #.permute(1,0,2) # NL(S+T+P+Z) => LN(S+T+P+Z)
         # print(a.size())
+
+        # Add conditioning information.
+        zpad = self.Cz - self.cinEach
+        zpad = torch.zeros((1,1,zpad),device=s.device).repeat(B,Lz,1)
+        a = torch.cat((
+            z.view(B,Lz,-1),
+            zpad), -1).permute(0,2,1)
 
         a = self.pre(a)
         for mod in self.mods:
@@ -223,9 +237,9 @@ class SplitAttnNet1(nn.Module):
 
         Z = meta['Z'] # full size
         Cz = meta['Cz'] # size of each subvector
-        Nz = Z // Cz # num sub vectors
+        Lz = Z // Cz # num sub vectors
         self.conditional = True
-        self.Z,self.Nz,self.Cz = Z,Nz,Cz
+        self.Z,self.Lz,self.Cz = Z,Lz,Cz
 
         Cposition = 1
         cinEach = 3 + ct + Cposition
@@ -238,7 +252,7 @@ class SplitAttnNet1(nn.Module):
 
         cinEach_z = Cz + Cposition
         self.pre_z = nn.Sequential(
-                nn.Conv1d(Cz, 256, 1, bias=False),
+                nn.Conv1d(cinEach_z, 256, 1, bias=False),
                 nn.BatchNorm1d(256),
                 nn.ReLU(True))
 
@@ -252,17 +266,17 @@ class SplitAttnNet1(nn.Module):
 
 
     def forward(self, s, t, z):
-        (B,S),L = s.size(), self.L
+        (B,S),L,Lz = s.size(), self.L, self.Lz
 
         # position encoding is just a number from [-1,1].
         # It's not really position here, but helps to label what joint an item is.
         pos   = torch.linspace(-1,1, L, device=s.device).view(1,-1,1)
-        pos_z = torch.linspace(-1,1, LZ, device=s.device).view(1,-1,1)
+        pos_z = torch.linspace(-1,1, Lz, device=s.device).view(1,-1,1)
 
         at = self.timeEncoder(s,t)
         ST = at.size(1)
 
-        Z,Nz,Cz = self.Z,self.Nz,self.Cz
+        Z,Lz,Cz = self.Z,self.Lz,self.Cz
         aa,tt = at[:,:S], at[:,S:]
         a = torch.cat((
             aa.view(B,L,3),
@@ -272,35 +286,41 @@ class SplitAttnNet1(nn.Module):
             .permute(0,2,1) # NL(S+T+P+Z) => BCL
 
         z = torch.cat((
-            z.view(B,Nz,3),
-            pos_z.view(1,Nz,-1).repeat(B,1,1),
+            z.view(B,Lz,Cz),
+            pos_z.view(1,Lz,-1).repeat(B,1,1),
         ), -1) \
             .permute(0,2,1) # NLC => BCL
 
         a = self.pre(a)
-        z = self.pre(z)
-        a = torch.cat((a,z), -1) # Make sequence length L+Nz.
+        z = self.pre_z(z)
+        a = torch.cat((a,z), -1) # Make sequence length L+Lz.
         for mod in self.mods:
             a = mod(a)
-        a = a[:L] # Remove conditional data.
+        a = a[:,:,:L] # Remove conditional data.
         e = self.fin(a)
         e = e.view(B,S)
         return e
 
-def get_model(dset, meta0):
+    def get_attn_maps(self):
+        maps = []
+        for mod in self.mods:
+            maps.append(mod.w)
+        return maps
+
+def get_model(meta0):
     meta = meta0
-    kind = meta['kind']
 
     loaded_d = None
     if 'load' in meta and meta['load'] != None:
         loaded_d = torch.load(meta['load'])
         meta = loaded_d['meta']
         # TODO: Replace any overwritable paratmers here (lik we want LR to be newly configured, not old)
-        meta['batchSize'] = meta0['batchSize']
+        if 'batchSize' in meta0: meta['batchSize'] = meta0['batchSize']
         if 'lr' in meta0: meta['lr'] = meta0['lr']
         if 'epochs' in meta0: meta['epochs'] = meta0['epochs']
         if 'ii' in loaded_d: meta['ii'] = loaded_d['ii']
 
+    kind = meta['kind']
 
     if kind == 'simple':
         S = meta['S']
@@ -329,7 +349,7 @@ def get_model(dset, meta0):
         net = ResidualNet2(meta)
 
     elif kind == 'attn1':
-        net = AttnNet1(meta)
+        net = SplitAttnNet1(meta)
 
 
 

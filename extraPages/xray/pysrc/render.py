@@ -124,6 +124,7 @@ class SurfaceRenderer(SingletonApp):
     def __init__(self, h, w):
         super().__init__((w,h), 'SurfaceRenderer')
         self.q_pressed = False
+        self.n_pressed = False
         self.mprev = np.array((-1,0))
         self.mprev2 = np.array((-1,0))
         self.md = np.array((0,.0))
@@ -158,6 +159,7 @@ class SurfaceRenderer(SingletonApp):
 
     def startFrame(self):
         self.q_pressed = False
+        self.n_pressed = False
         glutMainLoopEvent()
         self.startTime = time.time()
 
@@ -188,6 +190,7 @@ class SurfaceRenderer(SingletonApp):
     def keyboard(self, key, x, y):
         key = (key).decode()
         if key == 'q': self.q_pressed = True
+        if key == 'n': self.n_pressed = True
         if key == 'w': self.accTrans[2] = -1
         if key == 's': self.accTrans[2] = 1
 

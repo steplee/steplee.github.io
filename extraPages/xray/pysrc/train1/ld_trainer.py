@@ -1,7 +1,7 @@
 import torch, torch.nn as nn, torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 
-from ..data.posePriorDataset import PosePriorDataset
+from ..data.posePriorDataset import PosePriorDataset, Map_PP_to_Coco_v1
 from ..loss_dict import LossDict
 import os, sys
 
@@ -23,14 +23,14 @@ def q_to_matrix(q):
         1-2*(i*i+j*j)),1).view(-1,3,3)
 
 class DenoisingTrainer:
-    def __init__(self, meta, model, dset):
+    def __init__(self, meta, model, dset, pp_to_coco):
         self.meta = meta
         self.model = model.train().cuda()
 
         self.dset = dset
         self.dloader = DataLoader(dset, shuffle=True, batch_size=self.meta['batchSize'], num_workers=0, drop_last=False)
 
-        self.opt = torch.optim.Adam(self.model.parameters(), lr=2e-4)
+        self.opt = torch.optim.Adam(self.model.parameters(), lr=self.meta['baseLr'])
         # self.opt = torch.optim.Adam(self.model.parameters(), lr=1e-3)
         # self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.opt, .9999) # 1000 iters, 90% lr
         self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.opt, .99)
@@ -39,6 +39,8 @@ class DenoisingTrainer:
         self.viz = None
 
         self.title = self.meta['title']
+
+        self.pp_to_coco = pp_to_coco
 
 
     def save(self, outDir='/data/human/saves/'):
@@ -126,8 +128,10 @@ class DenoisingTrainer:
 
         return x, nx, ts, z, cams
 
-    def get_camData_for_batch(self, x, nx, ts):
-        (N0,S),d = x.size(), x.device
+    def get_camData_for_batch(self, x0, nx, ts):
+        x = self.pp_to_coco(x0)
+        (N0,S),d = x.size(), x0.device
+
 
         def try_gen(x):
             (N,S) = x.size()
@@ -161,9 +165,9 @@ class DenoisingTrainer:
                 # print(f' - Warning: failed to sample good xform for {bad.sum().cpu().item()} examples after {maxTrials} trials')
                 # assert False, 'too many trials'
                 good = ~bad
-                return x[good], nx[good], ts[good], y[good].view(-1,y.size(1)*y.size(2)), cams[good]
+                return x0[good], nx[good], ts[good], y[good].view(-1,y.size(1)*y.size(2)), cams[good]
 
-        return x, nx, ts, y.view(N0,-1), cams
+        return x0, nx, ts, y.view(N0,-1), cams
 
 
 
@@ -208,7 +212,8 @@ class DenoisingTrainer:
                     while (batch := self.get_batch(loader_iter)) is not None:
                         x,nx,ts,z,cams = batch
                         score = self.model(nx,ts,z)
-                        yield dict(x=x.cpu().numpy(),nx=nx.cpu().numpy(),ts=ts.cpu().numpy(),estScore=score.cpu().numpy(), inds=self.dset.inds, z=z,cams=cams)
+                        attn_maps = self.model.get_attn_maps() if hasattr(self.model, 'get_attn_maps') else None
+                        yield dict(x=x.cpu().numpy(),nx=nx.cpu().numpy(),ts=ts.cpu().numpy(),estScore=score.cpu().numpy(), inds=self.dset.inds, z=z,cams=cams, attnMaps=attn_maps)
                 self.viz.runBasicUntilQuit(genDataDicts)
 
             else:
@@ -216,7 +221,8 @@ class DenoisingTrainer:
                     while (batch := self.get_batch_interpTime(loader_iter)) is not None:
                         x,nx,ts,z,cams = batch
                         score = self.model(nx,ts,z)
-                        yield dict(true=x.cpu().numpy(),noisy=nx.cpu().numpy(),ts=ts.cpu().numpy(),estScore=score.cpu().numpy(), inds=self.dset.inds, z=z,cams=cams)
+                        attn_maps = self.model.get_attn_maps() if hasattr(self.model, 'get_attn_maps') else None
+                        yield dict(true=x.cpu().numpy(),noisy=nx.cpu().numpy(),ts=ts.cpu().numpy(),estScore=score.cpu().numpy(), inds=self.dset.inds, z=z,cams=cams, attnMaps=attn_maps)
                 self.viz.runAnimatedUntilQuit(genDataDicts)
 
             self.model = self.model.train()
@@ -262,15 +268,22 @@ if __name__ == '__main__':
     parser.add_argument('--load', default=None)
     parser.add_argument('--kind', default='resnet2')
     parser.add_argument('--title', default='firstModel1')
+    parser.add_argument('--baseLr', default=2e-4, type=float)
     args = parser.parse_args()
 
     meta = dict(args._get_kwargs())
 
     dset = PosePriorDataset(args.dsetFile, masterScale=.03)
+
+    from ..est2d.run import get_coco_skeleton
+    coco_inds, cocoJoints = get_coco_skeleton()
+    pp_to_coco = Map_PP_to_Coco_v1(cocoJoints,dset.joints)
+
     meta['S'] = dset.getStateSize()
 
     # Setup conditional data.
-    meta['Z'] = (meta['S'] * 2) // 3
+    # meta['Z'] = (meta['S'] * 2) // 3
+    meta['Z'] = (pp_to_coco.outputDims * 2) // 3
     meta['Cz'] = 2
 
     meta['kind'] = args.kind
@@ -279,8 +292,12 @@ if __name__ == '__main__':
     meta['iter'] = meta['epoch'] = 0
     meta['title'] = args.title
 
-    model,meta = get_model(dset, meta)
+
+    meta0 = dict(meta)
+    model,meta = get_model(meta)
+    for k,v in meta0.items():
+        if k not in meta: meta[k] = v
     print(model)
 
-    t = DenoisingTrainer(meta, model, dset)
+    t = DenoisingTrainer(meta, model, dset, pp_to_coco=pp_to_coco)
     t.train()

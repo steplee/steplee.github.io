@@ -24,6 +24,12 @@ def get_resnet50():
 
     return model
 
+def run_model(model, img):
+    with torch.no_grad():
+        x = torch.from_numpy(img).cuda().float().div_(255).unsqueeze_(0).permute(0,3,1,2)
+        x = model.weights.transforms()(x)
+        return model(x)
+
 def get_coco_skeleton():
     skeletonVertices_ = {
         0: 'eye',
@@ -68,26 +74,29 @@ def get_coco_skeleton():
                     zip(skeletonIndices_[0::2], skeletonIndices_[1::2],)
     ]
 
-    return skeletonIndices, skeletonIndicesInv
+    return skeletonIndices, skeletonVerticesInv
 
 class FasterRcnnModel():
     def __init__(self, model):
         self.model = model
-        self.skeletonIndices, self.skeletonIndicesInv = get_coco_skeleton()
+        self.skeletonIndices, self.skeletonVerticesInv = get_coco_skeleton()
+        print('Faster RCNN Skeleton:')
+        from pprint import pprint
+        pprint(self.skeletonVerticesInv)
 
     def forward(self, x):
         with torch.no_grad():
-            if isinstance(x, np.array):
-                x = torch.from_numpy(img).cuda().float().div_(255).unsqueeze_(0).permute(0,3,1,2)
+            if isinstance(x, np.ndarray):
+                x = torch.from_numpy(x).cuda().float().div_(255).unsqueeze_(0).permute(0,3,1,2)
             else:
                 assert isinstance(x, torch.Tensor)
                 assert x.dtype == torch.float32 or x.dtype == torch.uint8
-                if x.dtype() == torch.float32:
+                if x.dtype == torch.float32:
                     x = x.cuda().unsqueeze_(0).permute(0,3,1,2)
                 else:
                     x = x.cuda().float().div_(255).unsqueeze_(0).permute(0,3,1,2)
 
-            x = model.weights.transforms()(x)
+            x = self.model.weights.transforms()(x)
             return self.model(x)
 
     def __call__(self, x): return self.forward(x)
@@ -111,7 +120,7 @@ class FasterRcnnModel():
                         cv2.putText(img, str(i), pt, 0, .6, c)
 
         for keypoints in keypointss.cpu().numpy():
-            for (a,b) in skeletonIndices:
+            for (a,b) in self.skeletonIndices:
                 if keypoints[a,2].item() > .5 and keypoints[b,2].item() > .5:
                     pta = keypoints[a,:2].astype(int)
                     ptb = keypoints[b,:2].astype(int)
@@ -127,13 +136,20 @@ class FasterRcnnModel():
         return img
 
 
-def run_model_and_viz():
-    img = np.copy(cv2.imread('data/me.jpg')[...,[2,1,0]], 'C')
-    # img = np.copy(cv2.imread('data/climb.jpg')[...,[2,1,0]], 'C')
-    # img = np.copy(cv2.imread('data/sit.jpg')[...,[2,1,0]], 'C')
+def run_model_and_viz(m, img):
+    out = m(img)[0]
+    m.show_viz(img, out['boxes'], out['keypoints'], out['keypoints_scores'])
+
+    # out = run_model(m, img)[0]
+    # print(out)
+    # show_viz(img, out['boxes'], out['keypoints'], out['keypoints_scores'])
+
+if __name__ == '__main__':
+    # img = np.copy(cv2.imread('data/me.jpg')[...,[2,1,0]], 'C')
+    img = np.copy(cv2.imread('data/me2.jpg')[...,[2,1,0]], 'C')
     img = cv2.resize(img,(0,0),fx=.5,fy=.5)
 
-    m = get_model()
-    out = run_model(m, img)[0]
-    print(out)
-    show_viz(img, out['boxes'], out['keypoints'], out['keypoints_scores'])
+    m = get_resnet50()
+    m = FasterRcnnModel(m)
+
+    run_model_and_viz(img)

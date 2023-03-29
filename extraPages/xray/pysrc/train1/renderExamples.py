@@ -41,7 +41,7 @@ def draw_frustum(eye, R, wh, uv, pts2d, pts3d):
 
     glDisableClientState(GL_VERTEX_ARRAY)
 
-class ExampleRenderer(SingletonApp):
+class ExampleRendererBase(SingletonApp):
     def __init__(self, h, w):
         super().__init__((w,h), 'SurfaceRenderer')
         self.q_pressed = False
@@ -57,43 +57,18 @@ class ExampleRenderer(SingletonApp):
         self.R = np.eye(3,dtype=np.float32)
         self.t = np.copy(self.eye)
         self.view = np.eye(4,dtype=np.float32)
-
-        self.inds,self.x = None, None
-        self.addSign = 1
         self.lastKey = None
-        self.animationTime = -1
-        self.cam,self.z = None,None
 
     def do_init(self):
         pass
-
-
-
-    def render(self):
-        glViewport(0, 0, *self.wh)
-        glMatrixMode(GL_PROJECTION)
-        n = .001
-        v = .5
-        u = (v*self.wh[0]) / self.wh[1]
-        glLoadIdentity()
-        glFrustum(-u*n,u*n,-v*n,v*n,n,100)
-
-        #print(' - view:\n', self.view)
-        glMatrixMode(GL_MODELVIEW)
-        glLoadMatrixf(self.view.T.reshape(-1))
-
-        glClearColor(0,0,0,1.)
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-
-        if self.x is not None:
-            self.renderSkeleton()
-        if self.animationTime >= 0:
-            self.renderSkeletonAnimated()
 
     def startFrame(self):
         self.q_pressed = False
         glutMainLoopEvent()
         self.startTime = time.time()
+
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
 
         add_md = 0
         if self.mprev[0] > 0 and self.mprev2[0] > 0: add_md = (self.mprev - self.mprev2)
@@ -141,6 +116,40 @@ class ExampleRenderer(SingletonApp):
         glColor4f(0,1,0,1); glVertex3f(0,0,0); glVertex3f(0,1,0);
         glColor4f(0,0,1,1); glVertex3f(0,0,0); glVertex3f(0,0,1);
         glEnd()
+
+class ExampleRenderer(ExampleRendererBase):
+    def __init__(self, h, w):
+        super().__init__(h,w)
+
+        self.inds,self.x = None, None
+        self.addSign = 1
+        self.animationTime = -1
+        self.attentionMapIdx = 0
+        self.cam,self.z = None,None
+        self.attnMaps = None
+
+
+    def render(self):
+        glViewport(0, 0, *self.wh)
+        glMatrixMode(GL_PROJECTION)
+        n = .001
+        v = .5
+        u = (v*self.wh[0]) / self.wh[1]
+        glLoadIdentity()
+        glFrustum(-u*n,u*n,-v*n,v*n,n,100)
+
+        #print(' - view:\n', self.view)
+        glMatrixMode(GL_MODELVIEW)
+        glLoadMatrixf(self.view.T.reshape(-1))
+
+        glClearColor(0,0,0,1.)
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+
+        if self.x is not None:
+            self.renderSkeleton()
+        if self.animationTime >= 0:
+            self.renderSkeletonAnimated()
+
 
 
     def setData(self, inds, x, nx, estScore, ts=None):
@@ -207,10 +216,14 @@ class ExampleRenderer(SingletonApp):
             for data in genDataDict():
                 self.setDataAnimated(**data)
                 if 'cams' in data and data['cams'] is not None: self.setCameraData(**data)
+                if 'attnMaps' in data and data['attnMaps'] is not None: self.setAttnMaps(**data)
+                else: self.attnMaps = None
+
                 while not (self.n_pressed or self.q_pressed):
                     self.startFrame()
-                    if self.lastKey == ']': self.animationTime = min(self.animationTime + 1, self.animTrue.shape[0]-1)
-                    if self.lastKey == '[': self.animationTime = max(self.animationTime - 1, 0)
+                    if self.lastKey == "[": self.animationTime = max(self.animationTime - 1, 0)
+                    if self.lastKey == "]": self.animationTime = min(self.animationTime + 1, self.animTrue.shape[0]-1)
+                    if self.lastKey == "m": self.attentionMapIdx = self.attentionMapIdx + 1
                     self.render()
                     self.endFrame()
                 self.n_pressed = False
@@ -232,6 +245,10 @@ class ExampleRenderer(SingletonApp):
         self.cam = cams[0].cpu().numpy()
         self.z = z[0].cpu().numpy()
 
+    def setAttnMaps(self, attnMaps, **kw):
+        self.attnMaps = [m.cpu().numpy().astype(np.float32) for m in attnMaps]
+
+
     def renderSkeletonAnimated(self):
         I = self.animationTime
         assert I >= 0
@@ -243,16 +260,73 @@ class ExampleRenderer(SingletonApp):
                 (1,1,0,.5),
                 (.2,.9,0,.5))
 
-        for color, x in zip(colors, (x,xn,xe)):
+        for color, xx in zip(colors, (x,xn,xe)):
             glColor4f(*color)
             glEnableClientState(GL_VERTEX_ARRAY)
-            glVertexPointer(3,GL_FLOAT,0,x)
+            glVertexPointer(3,GL_FLOAT,0,xx)
             glDrawElements(GL_LINES,self.inds.size,GL_UNSIGNED_SHORT,self.inds)
             glDisableClientState(GL_VERTEX_ARRAY)
 
-        self.renderCam()
+        camPts = self.renderCam()
+
+        self.renderAttn(x,camPts)
+
+    def renderAttn(self, x, camPts):
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE)
+
+        if self.attnMaps is not None and len(self.attnMaps)>0:
+
+            # 0 means off.
+            idx = (self.attentionMapIdx) % (1+len(self.attnMaps))
+            if idx == 0:
+                return
+
+            map = self.attnMaps[idx-1]
+            if map is not None:
+
+                from matplotlib.cm import inferno
+                weight = map[self.animationTime]
+
+                # [L,3]
+                x = x.reshape(-1,3)
+                print(x.shape,camPts.shape)
+                pos0 = np.concatenate((x,camPts),0) if camPts is not None else x
+                # [L,L,4]
+                weight = weight / weight.max(0,keepdims=True)
+                col0 = inferno(weight)[...,:].astype(np.float32)
+                # print('size0',pos0.shape, col0.shape, 'weight',weight.shape)
+                # [L,7]
+                # verts0 = np.concatenate((pos0, col0), -1)
+
+                L = weight.shape[0]
+                assert L == len(pos0)
+                l = np.arange(L,dtype=np.uint8)
+                pairs = np.stack(np.meshgrid(l,l), -1) # [L,L,2]
+
+                # FIXME: Is the layout matching?
+                pos1 = pos0[pairs] # [L,L,2,3]
+                col1 = col0[...,np.newaxis,:].repeat(2,2) # [L,L,2,3]
+                # print('size1',pos1.shape, col1.shape)
+
+                # [L*L,3]
+                verts = np.concatenate((pos1,col1),-1)
+                # print('verts',verts.shape, verts.dtype)
+
+
+                glColor4f(1,1,1,1)
+                glEnableClientState(GL_VERTEX_ARRAY)
+                glEnableClientState(GL_COLOR_ARRAY)
+                glVertexPointer(3,GL_FLOAT, 28, verts)
+                glColorPointer(4,GL_FLOAT, 28, ctypes.c_void_p(verts.ctypes.data+12))
+                glDrawArrays(GL_LINES,0,L*L)
+                glDisableClientState(GL_VERTEX_ARRAY)
+                glDisableClientState(GL_COLOR_ARRAY)
+
+
+
 
     def renderCam(self):
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE)
         if self.cam is not None:
             u,v = self.cam[0:2]
             wh = self.cam[2:4]
@@ -273,32 +347,61 @@ class ExampleRenderer(SingletonApp):
                 0,0, 1,0),dtype=np.float32).reshape(4,4)
             model = CIV @ np.linalg.inv(CP)
 
-            glMatrixMode(GL_MODELVIEW)
-            mv = self.view @ model
-            glLoadMatrixf(mv.T.reshape(-1))
+            # Actually: don't use gl matrices here because we may need the points for later effects: just compute them on cpu.
 
             # Frustum.
+            glMatrixMode(GL_MODELVIEW)
+            glPushMatrix()
+            mv = self.view @ model
+            glLoadMatrixf(mv.T.reshape(-1))
             glColor4f(1,1,1,1)
             glEnableClientState(GL_VERTEX_ARRAY)
             glVertexPointer(3,GL_FLOAT,0,frustum_pts)
             glDrawElements(GL_LINES,frustum_inds.size,GL_UNSIGNED_SHORT,frustum_inds)
             glDisableClientState(GL_VERTEX_ARRAY)
+            glPopMatrix()
 
             # Points.
             pts0 = self.z.reshape(-1,2) / wh - .5
-            pts = np.ones((pts0.shape[0], 3), dtype=np.float32)
+
+            ptsFar = np.ones((pts0.shape[0], 4), dtype=np.float32)
+            ptsFar[:,:2] = pts0
+            ptsFar[:,2] *= 1+3e-2
+            ptsFar = (ptsFar @ (model.T))
+            # ptsFar = ptsFar[...,:3] / ptsFar[...,3:]
+
+            pts = np.ones((pts0.shape[0], 4), dtype=np.float32)
             pts[:,:2] = pts0
+            pts[:,2] *= 1
+            pts = (pts @ (model.T))
+            # pts = pts[...,:3] / pts[...,3:]
+
             # print(pts.shape)
             glColor4f(1,0,1,1)
             glEnableClientState(GL_VERTEX_ARRAY)
-            glVertexPointer(3,GL_FLOAT,0,pts)
+            glVertexPointer(4,GL_FLOAT,0,pts)
             glDrawArrays(GL_POINTS,0,len(pts))
             glDisableClientState(GL_VERTEX_ARRAY)
 
             # Lines connecting points.
-            pts1 = np.hstack((pts*(1,1,1), pts*(1,1,3))).reshape(-1,3)
-            glColor4f(1,0,1,.5)
+            glColor4f(1,0,1,.2)
+            # pts1 = np.hstack((pts*(1,1,1), pts*(1,1,3))).reshape(-1,3)
+            pts1 = np.hstack((pts, ptsFar)).reshape(-1,4)
+            # print(pts1)
+            # pts1 = pts1[...,:3]/pts1[...,3:]
+            # print(pts1)
             glEnableClientState(GL_VERTEX_ARRAY)
-            glVertexPointer(3,GL_FLOAT,0,pts1)
+            glVertexPointer(4,GL_FLOAT,0,pts1)
             glDrawArrays(GL_LINES,0,len(pts1))
             glDisableClientState(GL_VERTEX_ARRAY)
+
+            pts = pts[...,:3] / pts[...,3:]
+
+        else: pts = None
+        return pts
+
+    # ----------------------------------------------------------------------
+    # Langevin Sampled Skeletons
+    #
+    # Used by ld_sampler.py
+    #
