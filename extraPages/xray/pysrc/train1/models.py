@@ -307,6 +307,89 @@ class SplitAttnNet1(nn.Module):
             maps.append(mod.w)
         return maps
 
+class SplitAttnNet2(nn.Module):
+    def __init__(self, meta):
+        super().__init__()
+
+        S = meta['S']
+        self.L = S // 3
+        self.timeEncoder = get_time_encoder(meta)
+        cin = self.timeEncoder.getSize(S)
+        ct = cin - S
+
+        Z = meta['Z'] # full size
+        Cz = meta['Cz'] # size of each subvector
+        Lz = Z // Cz # num sub vectors
+        self.conditional = True
+        self.Z,self.Lz,self.Cz = Z,Lz,Cz
+
+        Cposition = 1
+        cinEach = 3 + ct + Cposition
+
+        self.pre = nn.Sequential(
+                nn.Conv1d(cinEach, 256, 1, bias=False),
+                nn.BatchNorm1d(256),
+                nn.ReLU(True))
+
+        cinEach_z = Cz + Cposition
+        self.pre_z = nn.Sequential(
+                nn.Conv1d(cinEach_z, 256, 1, bias=False),
+                nn.BatchNorm1d(256),
+                nn.ReLU(True))
+
+        self.mods = nn.ModuleList([
+                AttnBlock1(256, 512),
+                AttnBlock1(512,512),
+                AttnBlock1(512,1024),
+                AttnBlock1(1024,2048),
+                AttnBlock1(2048,512)])
+
+        self.fin = nn.Sequential(
+                nn.Conv1d(512, 3, 1))
+
+
+    def forward(self, s, t, z):
+        (B,S),L,Lz = s.size(), self.L, self.Lz
+
+        # position encoding is just a number from [-1,1].
+        # It's not really position here, but helps to label what joint an item is.
+        pos   = torch.linspace(-1,1, L, device=s.device).view(1,-1,1)
+        pos_z = torch.linspace(-1,1, Lz, device=s.device).view(1,-1,1)
+
+        at = self.timeEncoder(s,t)
+        ST = at.size(1)
+
+        Z,Lz,Cz = self.Z,self.Lz,self.Cz
+        aa,tt = at[:,:S], at[:,S:]
+        a = torch.cat((
+            aa.view(B,L,3),
+            tt.view(B,1,-1).repeat(1,L,1),
+            pos.view(1,L,-1).repeat(B,1,1),
+        ), -1) \
+            .permute(0,2,1) # NL(S+T+P+Z) => BCL
+
+        z = torch.cat((
+            z.view(B,Lz,Cz),
+            pos_z.view(1,Lz,-1).repeat(B,1,1),
+        ), -1) \
+            .permute(0,2,1) # NLC => BCL
+
+        a = self.pre(a)
+        z = self.pre_z(z)
+        a = torch.cat((a,z), -1) # Make sequence length L+Lz.
+        for mod in self.mods:
+            a = mod(a)
+        a = a[:,:,:L] # Remove conditional data.
+        e = self.fin(a)
+        e = e.view(B,S)
+        return e
+
+    def get_attn_maps(self):
+        maps = []
+        for mod in self.mods:
+            maps.append(mod.w)
+        return maps
+
 def get_model(meta0):
     meta = meta0
 
@@ -317,7 +400,10 @@ def get_model(meta0):
         # TODO: Replace any overwritable paratmers here (lik we want LR to be newly configured, not old)
         if 'batchSize' in meta0: meta['batchSize'] = meta0['batchSize']
         if 'lr' in meta0: meta['lr'] = meta0['lr']
+        if 'baseLr' in meta0: meta['baseLr'] = meta0['baseLr']
         if 'epochs' in meta0: meta['epochs'] = meta0['epochs']
+        if 'noRandomlyYaw' in meta0: meta['noRandomlyYaw'] = meta0['noRandomlyYaw']
+        if 'lossType' in meta0: meta['lossType'] = meta0['lossType']
         if 'ii' in loaded_d: meta['ii'] = loaded_d['ii']
 
     kind = meta['kind']
@@ -350,6 +436,8 @@ def get_model(meta0):
 
     elif kind == 'attn1':
         net = SplitAttnNet1(meta)
+    elif kind == 'attn2':
+        net = SplitAttnNet2(meta)
 
 
 

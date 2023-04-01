@@ -12,7 +12,8 @@ frustum_pts = np.array((
     -1,-1,1,
      1,-1,1,
      1, 1,1,
-    -1, 1,1),dtype=np.float32).reshape(8,3)
+    # -1, 1,1),dtype=np.float32).reshape(8,3)
+    -1, 1,1),dtype=np.float32).reshape(8,3) * (.5,.5,1)
 
 def draw_frustum(eye, R, wh, uv, pts2d, pts3d):
     glEnableClientState(GL_VERTEX_ARRAY)
@@ -339,10 +340,11 @@ class ExampleRenderer(ExampleRendererBase):
             CIV[:3,3 ] = eye
             n = .01
             f = 1.
-            u,v = 1/u, 1/v
+            # u,v = 1/u, 1/v
+            u,v = 2*u,2*v
             CP[:] = np.array((
                 1/u, 0,0,0,
-                0, 1/v, 0,0,
+                0, -1/v, 0,0,
                 0,0, (f+n)/(f-n), -2*f*n/(f-n),
                 0,0, 1,0),dtype=np.float32).reshape(4,4)
             model = CIV @ np.linalg.inv(CP)

@@ -1,7 +1,7 @@
 import torch, torch.nn as nn, torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 
-from ..data.posePriorDataset import PosePriorDataset, Map_PP_to_Coco_v1
+from ..data.posePriorDataset import PosePriorDataset, Map_PP_to_Coco_v1, randomly_yaw_batch
 from ..loss_dict import LossDict
 import os, sys
 
@@ -33,12 +33,15 @@ class DenoisingTrainer:
         self.opt = torch.optim.Adam(self.model.parameters(), lr=self.meta['baseLr'])
         # self.opt = torch.optim.Adam(self.model.parameters(), lr=1e-3)
         # self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.opt, .9999) # 1000 iters, 90% lr
-        self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.opt, .99)
+        self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.opt, .99993)
         self.lossDict = LossDict()
         self.ii = self.meta.get('ii',0)
         self.viz = None
 
         self.title = self.meta['title']
+        self.randomlyYaw = not self.meta.get('noRandomlyYaw', False)
+        self.lossType = self.meta.get('lossType', 'l2')
+        self.lossTimeWeight = self.meta.get('lossTimeWeight', 'none')
 
         self.pp_to_coco = pp_to_coco
 
@@ -65,6 +68,7 @@ class DenoisingTrainer:
         with torch.no_grad():
             try:
                 x = next(loaderIter)
+                if self.randomlyYaw: x = randomly_yaw_batch(x)
             except StopIteration:
                 return None
 
@@ -91,6 +95,7 @@ class DenoisingTrainer:
         with torch.no_grad():
             try:
                 x = next(loaderIter)
+                if self.randomlyYaw: x = randomly_yaw_batch(x)
             except StopIteration:
                 return None
 
@@ -135,24 +140,41 @@ class DenoisingTrainer:
 
         def try_gen(x):
             (N,S) = x.size()
-            eye = (torch.rand(N,1,3,device=d)-.5) * torch.FloatTensor((1.4,1.4,.5)).view(1,1,3).to(d) + torch.FloatTensor((0,1,-2)).view(1,1,3).to(d)
-            q = (torch.rand(N,4,device=d)-.5) * torch.FloatTensor((1,0,1,0)).view(1,4).to(d) + torch.FloatTensor((8,0,0,0)).to(d)
-            R = q_to_matrix(F.normalize(q,dim=1))
+
             wh = torch.rand(N,2,device=d) * 0 + 512
-            uv = torch.rand(N,2,device=d) * 0 + 1
+            fov = (torch.rand(N,1,device=d) * 30 + 20) * 3.141 / 180
+            uv = (fov*.5).tan().repeat(1,2) * 2
+            f = wh/uv
+            # print(fov, uv,f)
+            # uv = torch.rand(N,1,device=d).repeat(1,2) * 8 + .2
+            # d = 1/uv
+
+            # eye = (torch.rand(N,1,3,device=d)-.5) * torch.FloatTensor((1.4,1.4,.5)).view(1,1,3).to(d) + torch.FloatTensor((0,1,-2)).view(1,1,3).to(d)
+            eye = (torch.rand(N,1,3,device=d)-.5) * torch.FloatTensor((1.4,1.5,.5)).view(1,1,3).to(d)
+            eye[:,:,1] += 1
+            # eye[:,:,2] += -2 * uv[:,0].view(N,1) * (torch.rand(N,1,device=d)*2.5+.5)
+            eye[:,:,2] += -.3 + -.7 * (1./uv[:,0].view(N,1)) * (1.2 + 1./(torch.rand(N,1,device=d)*7+.2))
+            # eye[:,:,2] += -.3 + -1.5 * (1./uv[:,0].view(N,1))
+
+            # q = (torch.rand(N,4,device=d)-.5) * torch.FloatTensor((1,0,1,0)).view(1,4).to(d) + torch.FloatTensor((8,0,0,0)).to(d)
+            # q = (torch.rand(N,4,device=d)-.5) * torch.FloatTensor((1,1e-2,1,1e-2)).view(1,4).to(d) + torch.FloatTensor((8,0,0,0)).to(d)
+            # R = q_to_matrix(F.normalize(q,dim=1))
+            R = torch.eye(3,device=d).unsqueeze_(0).repeat(N,1,1)
             # now we have points and tensors analogous to MVP matrices, and can project.
             x = x.view(N,-1,3) - eye
             x = x.view(N,-1,3) @ R.permute(0,2,1) # same size as x
             x = x[...,:2] / x[...,2:]
-            x[...,:2] = x[...,:2] * (wh/uv).view(N,1,2) + wh.view(N,1,2)*.5
+            x[...,1] *= -1
+            x[...,:2] = x[...,:2] * (f*.5).view(N,1,2) + wh.view(N,1,2)*.5
             cams = torch.cat((uv,wh,eye.flatten(1),R.flatten(1)), 1)
             return x,cams
 
         y,cams = try_gen(x)
+        # print(y.view(N0,-1,2))
 
         bad = ((y < 0) | (y > 512)).view(N0,-1).any(1)
         trials = 0
-        maxTrials = 33 if N0 > 1 else 99999
+        maxTrials = 20 if N0 > 1 else 99999
         while (bad==True).any():
             # print(trials,bad.float().mean())
             xx = x[bad]
@@ -160,13 +182,18 @@ class DenoisingTrainer:
             y[bad] = yy
             cams[bad] = ccs
             bad = ((y < 0) | (y > 512)).view(N0,-1).any(1)
+            # print(y.view(N0,-1,2))
+            # print(bad)
+            # bad[:] = 0
             trials += 1
             if trials > maxTrials:
                 # print(f' - Warning: failed to sample good xform for {bad.sum().cpu().item()} examples after {maxTrials} trials')
                 # assert False, 'too many trials'
                 good = ~bad
+                # print(f'{good.sum()} in {trials} trials')
                 return x0[good], nx[good], ts[good], y[good].view(-1,y.size(1)*y.size(2)), cams[good]
 
+        # print(f'{len(x0)} in {trials} trials')
         return x0, nx, ts, y.view(N0,-1), cams
 
 
@@ -175,18 +202,32 @@ class DenoisingTrainer:
     def train_batch(self, batch):
         x,nx,ts,z,cams = batch
         B,S = x.size()
+        # print(B)
 
 
         self.model = self.model.train()
         self.opt.zero_grad()
         s = self.model(nx,ts,z)
 
-        loss = (s - (x-nx[...,:S])).pow(2).sum(-1).mean()
+        if self.lossTimeWeight == 'none':
+            lossWeight = 1
+        elif self.lossTimeWeight == 'inv':
+            # Make small t count more
+            lossWeight = .2 / (ts + .2)
+            # print(ts.view(-1))
+            # print(lossWeight.view(-1))
+        else:
+            raise ('unk lossWeight')
+
+        if self.lossType == 'l2':
+            loss = ((s - (x-nx[...,:S])).pow(2).sum(-1) * lossWeight).mean()
+        if self.lossType == 'l1':
+            loss = ((s - (x-nx[...,:S])).abs().sum(-1) * lossWeight).mean()
         loss.backward()
 
         self.opt.step()
 
-        self.lossDict.push(self.ii, 'dn', loss)
+        self.lossDict.push(self.ii, 'dn' + ('2' if self.lossType=='l2' else '1'), loss)
         if self.ii % 250 == 0:
             self.lossDict.print(self.ii,lr=self.scheduler.get_last_lr()[0])
 
@@ -239,6 +280,7 @@ class DenoisingTrainer:
             try:
                 while (batch := self.get_batch(self.dloader_iter)) is not None:
                     self.train_batch(batch)
+                    self.scheduler.step()
             except KeyboardInterrupt:
                 while 1:
                     print("\n - enter 'v' to viz, 'q' to stop, 's' to save")
@@ -253,7 +295,6 @@ class DenoisingTrainer:
                         self.save()
                         break
             if stop: break
-            self.scheduler.step()
 
 
 
@@ -261,7 +302,8 @@ if __name__ == '__main__':
 
     from argparse import ArgumentParser
     parser = ArgumentParser()
-    parser.add_argument('--dsetFile', default='/data/human/posePrior/procStride10/data.npz')
+    # parser.add_argument('--dsetFile', default='/data/human/posePrior/procStride2/data.npz')
+    parser.add_argument('--dsetFile', default='/data/human/posePrior/procAugment1Stride2/data.npz')
     parser.add_argument('--modelNo', default=0)
     parser.add_argument('--batchSize', default=256, type=int)
     parser.add_argument('--epochs', default=1000, type=int)
@@ -269,6 +311,9 @@ if __name__ == '__main__':
     parser.add_argument('--kind', default='resnet2')
     parser.add_argument('--title', default='firstModel1')
     parser.add_argument('--baseLr', default=2e-4, type=float)
+    parser.add_argument('--noRandomlyYaw', action='store_true')
+    parser.add_argument('--lossType', default='l2')
+    parser.add_argument('--lossTimeWeight', default='none', choices=('none','inv'))
     args = parser.parse_args()
 
     meta = dict(args._get_kwargs())

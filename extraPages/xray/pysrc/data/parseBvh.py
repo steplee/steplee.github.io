@@ -1,6 +1,16 @@
 import numpy as np, math, sys
 import json
+from copy import deepcopy
 _EPS4 = np.finfo(float).eps * 4.0
+
+'''
+
+This file exports a BVH (I'm using the mp pose prior dataset) to a numpy float32 file.
+That binary file is read and used with 'posePriorDataset.py'
+This script can also show the data in 3d.
+This script allows augmenting each pose while exporting.
+
+'''
 
 # From https://github.com/matthew-brett/transforms3d/blob/bb2c0a90629e30699e55bb7fd1dd56e99d77f9e1/transforms3d/euler.py
 def euler2mat(ai, aj, ak):
@@ -50,6 +60,7 @@ class BvhJoint:
         self.name = name
         self.parent = parent
         self.offset = np.zeros(3)
+        self.offset0 = np.zeros(3)
         self.channels = []
         self.children = []
 
@@ -99,6 +110,7 @@ class Bvh:
             elif instruction == "OFFSET":
                 for i in range(1, len(words)):
                     joint_stack[-1].offset[i - 1] = float(words[i])
+                    joint_stack[-1].offset0[i - 1] = float(words[i])
             elif instruction == "End":
                 joint = BvhJoint(joint_stack[-1].name + "_end", joint_stack[-1])
                 joint_stack[-1].add_child(joint)
@@ -111,7 +123,23 @@ class Bvh:
         # no matter the order in the BVH file
         js = sorted(self.joints.items(), key=lambda t:t[0])
         self.joints = dict(js)
-        self.jointsValsAsList = list(self.joints.values())
+        # print(self.joints)
+        self.jointsRev = {v.name: i for i,(k,v) in enumerate(self.joints.items())}
+        # self.origJoints = deepcopy(dict(js))
+
+
+    def augment(self, augmentDict):
+        # js = deepcopy(self.origJoints)
+
+        for k in augmentDict.keys(): assert k in augmentDict
+
+        for k,mult in augmentDict.items():
+            self.joints[k].offset[:] = self.joints[k].offset0[:]
+        for k,mult in augmentDict.items():
+            # FIXME: This or the children?
+            # self.joints[k].offset[:] *= mult
+            for c in self.joints[k].children:
+                c.offset[:] *= mult
 
     def _add_pose_recursive(self, joint, offset, poses):
         pose = joint.offset + offset
@@ -222,7 +250,8 @@ class Bvh:
         else:
             offset_position = np.zeros(3)
 
-        joint_index = self.jointsValsAsList.index(joint)
+        # joint_index = self.jointsValsAsList.index(joint)
+        joint_index = self.jointsRev[joint.name]
 
         if len(joint.channels) == 0:
             p[joint_index] = p_parent + M_parent.dot(joint.offset)
@@ -336,12 +365,15 @@ class Bvh:
 from ..render import *
 
 
-def show_anim_3d(anim):
+def show_anim_3d(anim, augmentEach=False):
     inds = anim.getInds()
 
     app = SurfaceRenderer(1024,1024)
     app.init(True)
     for p,r in anim:
+
+        if augmentEach:
+            anim.augment(get_random_augment())
 
         verts = p.astype(np.float32) * .1
 
@@ -349,9 +381,9 @@ def show_anim_3d(anim):
         app.render()
 
         glBegin(GL_LINES)
-        glColor4f(1,0,0,1); glVertex3f(0,0,0); glVertex3f(1,0,0);
-        glColor4f(0,1,0,1); glVertex3f(0,0,0); glVertex3f(0,1,0);
-        glColor4f(0,0,1,1); glVertex3f(0,0,0); glVertex3f(0,0,1);
+        glColor4f(1,0,0,1); glVertex3f(0,0,0); glVertex3f(4,0,0);
+        glColor4f(0,1,0,1); glVertex3f(0,0,0); glVertex3f(0,4,0);
+        glColor4f(0,0,1,1); glVertex3f(0,0,0); glVertex3f(0,0,4);
         glEnd()
 
         glBegin(GL_LINES)
@@ -368,16 +400,83 @@ def find_all_bvh_files(d):
         for f in files:
             if f.endswith('.bvh'): yield os.path.join(root, f)
 
+
+
+def get_random_augment():
+    def ranged(lo,hi):
+        return np.random.rand() * (hi-lo) + lo
+    def leftRight(k,v):
+        return {'Left'+k:v, 'Right'+k: v}
+    def end(k,v):
+        return {k:v, k+'_end': v}
+    def leftRightEnd(k,v):
+        return {**end('Left'+k,v), **end('Right'+k,v)}
+
+
+    r_width = (.9, 1.2)
+    r_height = (.8, 1.3)
+
+    r_legLen = (.9, 1.1)
+    r_foreArmLen = (.9, 1.1)
+    r_armLen = (.9, 1.1)
+
+
+    Width = np.array((ranged(*r_width), 1, 1))
+    # Height = np.array((1, ranged(*r_height), 1))
+    Height = ranged(*r_height)
+    # Height = 1
+
+    # Multiply by width in X axis, Height in Z axis.
+    hip = ranged(.9,1.1) * Width * np.array((1,Height,1))
+    shoulder = ranged(.9,1.01) * Width
+
+    arm = ranged(.9,1.1) * Height
+    forearm = ranged(.9,1.1) * Height
+    hand = ranged(.95,1.05) * Height
+
+    leg = ranged(.9,1.1) * Height
+    upleg = ranged(.9,1.1) * Height
+    foot = ranged(.95,1.05) * Height
+
+    head = ranged(.9,1.1)
+    spine = ranged(.9,1.1) * Height
+
+
+    return dict(
+            # Overall width
+            **leftRight('Shoulder', shoulder),
+            Hips=hip,
+
+            # Arms
+            **leftRight('Arm', arm),
+            **leftRight('ForeArm', forearm),
+            **leftRightEnd('Hand', forearm),
+            **leftRightEnd('HandThumb1', forearm),
+
+            # Legs
+            **leftRight('UpLeg', upleg),
+            **leftRight('Leg', leg),
+            **leftRight('Foot', foot),
+            **leftRightEnd('ToeBase', foot),
+
+            # Head
+            Head=head*Height,
+            Head_end=head,
+            Spine=spine,
+
+            )
+
 if __name__ == '__main__':
     from argparse import ArgumentParser
     parser = ArgumentParser()
     parser.add_argument('--inputDir', default='')
     parser.add_argument('--exportDir', default='')
-    parser.add_argument('--exportStride', default=10, type=int)
+    parser.add_argument('--exportStride', default=2, type=int)
 
     # Show a 3d animation of the one file
     parser.add_argument('--singleInput', default='')
     parser.add_argument('--show', action='store_true')
+    parser.add_argument('--augment', action='store_true')
 
     args = parser.parse_args()
 
@@ -388,7 +487,11 @@ if __name__ == '__main__':
         anim = Bvh()
         if args.singleInput:
             anim.parse_file(args.singleInput)
-            show_anim_3d(anim)
+
+            # augd = get_random_augment()
+            # anim.augment(get_random_augment())
+            # anim.augment({ 'LeftShoulder': 2, 'RightShoulder': 2, })
+            show_anim_3d(anim, augmentEach=args.augment)
 
 
     if args.exportDir:
@@ -402,11 +505,13 @@ if __name__ == '__main__':
                 anim.parse_file(f)
                 anim.iterStride = args.exportStride
                 for i,(p,r) in enumerate(anim):
+                    if args.augment: anim.augment(get_random_augment())
                     p = p.astype(np.float32)
                     data.append(p)
                 print(anim.joint_names())
                 # print(anim.getInds())
         except KeyboardInterrupt:
+            print(' - Interrupted... still saving partial results.')
             pass
 
         data = np.stack(data)

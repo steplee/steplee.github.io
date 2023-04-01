@@ -54,6 +54,31 @@ def center_dataset(x, joint2idx, inds):
 
         return x
 
+
+# Given a cuda tensor, rotate the poses to create more diversity.
+# This will yaw around the local mean!
+def randomly_yaw_batch(x):
+    with torch.no_grad():
+        (B,S),d = x.size(),x.device
+        L = S // 3
+        x = x.view(B,L,3)
+        mu = x.mean((0,1),keepdims=True)
+
+        angles = torch.randn(B,device=d) * (0 / np.pi)
+        c,s = torch.cos(angles), torch.sin(angles)
+
+        R = torch.eye(3,device=d).unsqueeze_(0).repeat(B,1,1)
+        R[:,0,0] = c
+        R[:,2,2] = c
+        R[:,0,2] = -s
+        R[:,2,0] = s
+
+        x -= mu
+        x = x @ R.mT
+        x += mu
+
+        return x.view(B,S)
+
 class PosePriorDataset(Dataset):
     def __init__(self, file, masterScale=1):
 
@@ -64,7 +89,9 @@ class PosePriorDataset(Dataset):
         self.joints = {k:i*1 for (i,k) in enumerate(d['joints'])}
 
         if CENTER_DATASET:
+            print(' - Centering dataset ...')
             self.data = center_dataset(self.data, self.joints, self.inds)
+            print(' -                   ... Done')
 
 
         print(f' - PosePriorDataset(d={self.data.shape}, inds={self.inds.shape})')

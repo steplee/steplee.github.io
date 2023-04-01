@@ -64,7 +64,10 @@
 <p>One downside to the functorch/jax approach is that it typically requires a fixed batch size. Specifically, every camera must observed the same number of points (otherwise we can't vectorize out the cameras). This is not a huge issue though, you can just use a large enough axis length to fit the camera with the most point observations, and zero out any invalid data later. Or do that, but with a small number groups.</p><br>
 <p>Next I worked on a viewer for the optimization process. I didn't want to work with the same OpenGL code I have a million times, so I worked on a pytorch cuda tensor based class. The only difficult part was copying a 2d 'distanceToLine' function from some old GLSL code and vectorizing it with pytorch.</p><br>
 <p>Here is some results in a scene with a bad initialization.</p><br>
-<p><image src="/res/adba/steps.gif">Results</image></p><br>
+<p><figure>
+	<image src="/res/adba/steps.gif"></image>
+	<figcaption>Results<figcaption>
+</figure></p><br>
 <br>
 <br>
 <h2>Conjugate Gradients</h2><br>

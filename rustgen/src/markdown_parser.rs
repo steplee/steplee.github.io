@@ -371,6 +371,7 @@ fn try_link_or_image(strm: &mut Stream) -> Option<Tok> {
     let mut state = 0;
     loop {
         if let Some(c) = user.next() {
+            // println!("c={}",c);
             if c == '\n' {
                 return None
             }
@@ -378,9 +379,12 @@ fn try_link_or_image(strm: &mut Stream) -> Option<Tok> {
                 state = 1;
                 close_bracket_j = user.j-1;
             }
-            if state == 1 && (c == '(' && last_c != '\\') {
+            else if state == 1 && (c == '(' && last_c != '\\') {
                 state = 2;
                 open_paren_j = user.j;
+            } else if state == 1 {
+                // println!("failed link because non '](' sequence c={}",c);
+                // return None
             }
             if state == 2 && (c == ')' && last_c != '\\') {
                 state = 2;
@@ -546,7 +550,6 @@ fn try_normal(strm: &mut Stream) -> Option<Tok> {
             }
 
             if c == '[' {
-
                 // If last was '!', this is an inline image and the next lex call must see it.
                 let j_at_open = if last_c == '!' { user.j-2 } else { user.j-1 };
 
@@ -557,7 +560,8 @@ fn try_normal(strm: &mut Stream) -> Option<Tok> {
 
                         // This is valid, we have to backup and stop there.
                         if open_paren.is_some() && clos_paren.is_some() {
-                            if open_paren.unwrap() < clos_paren.unwrap() {
+                            // '(' comes before ')', and we have a sequence that is exactly ']('
+                            if (open_paren.unwrap() < clos_paren.unwrap()) && (open_paren.unwrap() == 1) {
                                 user.j = j_at_open;
                                 user.commit();
                                 return Some(Tok::Normal(user.strm.s[start_j..user.j].to_owned()));
@@ -566,7 +570,24 @@ fn try_normal(strm: &mut Stream) -> Option<Tok> {
 
                     }
                 }
+
+                user.j = j_at_open+1;
             }
+            /*
+            if c == '[' {
+                // let mut user1 = StreamUse::from(user.strm);
+                let back = user.j-1;
+                user.strm.i += back;
+                println!("try because link");
+                if let Some(_) = try_link_or_image(user.strm) {
+                    println!("stop because link");
+                    // user.j = back;
+                    return Some(Tok::Normal(user.strm.s[start_j..user.j].to_owned()));
+                }
+                user.j = back;
+            }
+            */
+
             last_c = c;
         } else { break }
     }
@@ -698,7 +719,15 @@ fn lower_doc_to_html(tokens: &Vec<Tok>, sh: Option<&SyntaxHighlighter>, top: boo
             OneStarred(s) => html += &format!("<span class=\"star1\">{}</span>", s),
             TwoStarred(s) => html += &format!("<span class=\"star2\">{}</span>", s),
             Link(label, link) => html += &format!("<a href=\"{}\">{}</a>", link, label),
-            Image(label, link) => html += &format!("<image src=\"{}\">{}</image>", link, label),
+
+            // Image(label, link) => html += &format!("<image src=\"{}\">{}</image>", link, label),
+            Image(label, link) => {
+                html += &format!("<figure>\n");
+                html += &format!("\t<image src=\"{}\"></image>\n", link);
+                html += &format!("\t<figcaption>{}<figcaption>\n", label);
+                html += &format!("</figure>");
+            }
+
             // Normal(s) => html += &format!("<p>{}</p>", s),
             Normal(s) => html += &format!("{}", s),
             Break() => html += "<br>\n",
