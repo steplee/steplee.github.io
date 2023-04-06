@@ -107,6 +107,9 @@ class FasterRcnnModel():
             pt2 = box[2:].astype(int)
             cv2.rectangle(img, pt1,pt2, (0,255,0), 1)
 
+        textImg = img*0
+        circImg = img*0
+
         for keypoints in keypointss.cpu().numpy():
             for i, kpt in enumerate(keypoints):
                     if kpt[2] > .5:
@@ -114,10 +117,10 @@ class FasterRcnnModel():
                         pt1 = kpt[:2].astype(int) + (1,0)
                         score = kscores.view(-1)[i].sigmoid().item()
                         c = (255-int(score*255),int(score*255),0)
-                        cv2.circle(img, pt, 4, c, 1)
-                        print(pt,score)
-                        cv2.putText(img, str(i), pt1, 0, .6, (0,0,0))
-                        cv2.putText(img, str(i), pt, 0, .6, c)
+                        cv2.circle(circImg, pt, 4, c, 1)
+                        # print(pt,score)
+                        cv2.putText(textImg, str(i), pt1, 0, .6, (0,0,0))
+                        cv2.putText(textImg, str(i), pt, 0, .6, c)
 
         for keypoints in keypointss.cpu().numpy():
             for (a,b) in self.skeletonIndices:
@@ -130,19 +133,23 @@ class FasterRcnnModel():
                     c = (255-int(score*255),int(score*255),0)
                     cv2.line(img, pta, ptb, c)
 
+        img = cv2.addWeighted(img, 1, textImg, .3, 0)
+        img = cv2.addWeighted(img, 1, circImg, .6, 0)
+
         if show:
             cv2.imshow('img', img[...,::-1])
             cv2.waitKey(0)
         return img
 
 
-def run_model_and_viz(m, img):
+def run_model_and_viz(m, img, show=True):
     out = m(img)[0]
-    m.show_viz(img, out['boxes'], out['keypoints'], out['keypoints_scores'])
+    vimg = m.show_viz(img, out['boxes'], out['keypoints'], out['keypoints_scores'], show=show)
 
     # out = run_model(m, img)[0]
     # print(out)
     # show_viz(img, out['boxes'], out['keypoints'], out['keypoints_scores'])
+    return out, vimg
 
 if __name__ == '__main__':
     # img = np.copy(cv2.imread('data/me.jpg')[...,[2,1,0]], 'C')

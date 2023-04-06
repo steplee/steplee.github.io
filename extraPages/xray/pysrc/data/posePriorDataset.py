@@ -2,6 +2,7 @@ import torch, torch.nn as nn, torch.nn.functional as F
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
 
+
 CENTER_DATASET = True
 def center_dataset(x, joint2idx, inds):
     with torch.no_grad():
@@ -64,7 +65,7 @@ def randomly_yaw_batch(x):
         x = x.view(B,L,3)
         mu = x.mean((0,1),keepdims=True)
 
-        angles = torch.randn(B,device=d) * (0 / np.pi)
+        angles = torch.randn(B,device=d) * (10 / np.pi)
         c,s = torch.cos(angles), torch.sin(angles)
 
         R = torch.eye(3,device=d).unsqueeze_(0).repeat(B,1,1)

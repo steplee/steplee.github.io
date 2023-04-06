@@ -3,11 +3,13 @@ from torch.utils.data import Dataset, DataLoader
 
 from ..data.posePriorDataset import PosePriorDataset, Map_PP_to_Coco_v1, randomly_yaw_batch
 from ..loss_dict import LossDict
-import os, sys
+import os, sys, numpy as np
 
 from .models import *
 
-# Need to map torhcvision joints to this dset joints.
+print(' - MUST FIX: Divide by wh and subtract .5')
+
+# Need to vizualize the mapped coco skeleton.
 
 def q_to_matrix(q):
     r,i,j,k = q[:,0], q[:,1], q[:,2], q[:,3]
@@ -42,6 +44,7 @@ class DenoisingTrainer:
         self.randomlyYaw = not self.meta.get('noRandomlyYaw', False)
         self.lossType = self.meta.get('lossType', 'l2')
         self.lossTimeWeight = self.meta.get('lossTimeWeight', 'none')
+        self.obs2dSigma = self.meta.get('obs2dSigma', 1)
 
         self.pp_to_coco = pp_to_coco
 
@@ -142,37 +145,47 @@ class DenoisingTrainer:
             (N,S) = x.size()
 
             wh = torch.rand(N,2,device=d) * 0 + 512
-            fov = (torch.rand(N,1,device=d) * 30 + 20) * 3.141 / 180
+            fov = (torch.rand(N,1,device=d) * 45 + 25) * 3.141 / 180
+            # fov = fov*0 + np.deg2rad(90)
+            # uv = (fov*.5).tan().repeat(1,2) * 2
             uv = (fov*.5).tan().repeat(1,2) * 2
             f = wh/uv
+            # print('uv',uv)
+            # print('f',f)
             # print(fov, uv,f)
             # uv = torch.rand(N,1,device=d).repeat(1,2) * 8 + .2
             # d = 1/uv
 
             # eye = (torch.rand(N,1,3,device=d)-.5) * torch.FloatTensor((1.4,1.4,.5)).view(1,1,3).to(d) + torch.FloatTensor((0,1,-2)).view(1,1,3).to(d)
             eye = (torch.rand(N,1,3,device=d)-.5) * torch.FloatTensor((1.4,1.5,.5)).view(1,1,3).to(d)
-            eye[:,:,1] += 1
+            eye[:,:,1] += 1.2
             # eye[:,:,2] += -2 * uv[:,0].view(N,1) * (torch.rand(N,1,device=d)*2.5+.5)
-            eye[:,:,2] += -.3 + -.7 * (1./uv[:,0].view(N,1)) * (1.2 + 1./(torch.rand(N,1,device=d)*7+.2))
+            eye[:,:,2] += 1.3 + .7 * (1./uv[:,0].view(N,1)) * (1.2 + 1./(torch.rand(N,1,device=d)*7+.2))
             # eye[:,:,2] += -.3 + -1.5 * (1./uv[:,0].view(N,1))
 
             # q = (torch.rand(N,4,device=d)-.5) * torch.FloatTensor((1,0,1,0)).view(1,4).to(d) + torch.FloatTensor((8,0,0,0)).to(d)
-            # q = (torch.rand(N,4,device=d)-.5) * torch.FloatTensor((1,1e-2,1,1e-2)).view(1,4).to(d) + torch.FloatTensor((8,0,0,0)).to(d)
-            # R = q_to_matrix(F.normalize(q,dim=1))
-            R = torch.eye(3,device=d).unsqueeze_(0).repeat(N,1,1)
+            q = (torch.rand(N,4,device=d)-.5) * torch.FloatTensor((1,1e-2,1,1e-2)).view(1,4).to(d) + torch.FloatTensor((0,7.5,0,0)).to(d)
+
+            R = q_to_matrix(F.normalize(q,dim=1))
+            # R = torch.eye(3,device=d).unsqueeze_(0).repeat(N,1,1)
             # now we have points and tensors analogous to MVP matrices, and can project.
             x = x.view(N,-1,3) - eye
-            x = x.view(N,-1,3) @ R.permute(0,2,1) # same size as x
+            # x = x.view(N,-1,3) @ R#.permute(0,2,1) # same size as x
+            x = x.view(N,-1,3) @ R.mT
             x = x[...,:2] / x[...,2:]
-            x[...,1] *= -1
-            x[...,:2] = x[...,:2] * (f*.5).view(N,1,2) + wh.view(N,1,2)*.5
-            cams = torch.cat((uv,wh,eye.flatten(1),R.flatten(1)), 1)
+            # x[...,1] *= -1
+
+            # x[...,:2] = x[...,:2] * (f*.5).view(N,1,2) + wh.view(N,1,2)*.5
+            x[...,:2] = x[...,:2] / (.5 * uv.view(N,1,2))
+            # print(x)
+
+            cams = torch.cat((uv,wh,eye.flatten(1),R.view(-1,9)), 1)
             return x,cams
 
         y,cams = try_gen(x)
         # print(y.view(N0,-1,2))
 
-        bad = ((y < 0) | (y > 512)).view(N0,-1).any(1)
+        bad = ((y < -1) | (y > 1)).view(N0,-1).any(1)
         trials = 0
         maxTrials = 20 if N0 > 1 else 99999
         while (bad==True).any():
@@ -181,7 +194,10 @@ class DenoisingTrainer:
             yy,ccs = try_gen(xx)
             y[bad] = yy
             cams[bad] = ccs
-            bad = ((y < 0) | (y > 512)).view(N0,-1).any(1)
+
+            # bad = ((y < 0) | (y > 512)).view(N0,-1).any(1)
+            bad = ((y < -1) | (y > 1)).view(N0,-1).any(1)
+
             # print(y.view(N0,-1,2))
             # print(bad)
             # bad[:] = 0
@@ -191,9 +207,11 @@ class DenoisingTrainer:
                 # assert False, 'too many trials'
                 good = ~bad
                 # print(f'{good.sum()} in {trials} trials')
+                x0[:] += torch.randn_like(x0) * self.obs2dSigma / cams[...,2].view(-1,1)
                 return x0[good], nx[good], ts[good], y[good].view(-1,y.size(1)*y.size(2)), cams[good]
 
         # print(f'{len(x0)} in {trials} trials')
+        x[:] += torch.randn_like(x) * self.obs2dSigma / cams[...,2].view(-1,1)
         return x0, nx, ts, y.view(N0,-1), cams
 
 
@@ -203,7 +221,6 @@ class DenoisingTrainer:
         x,nx,ts,z,cams = batch
         B,S = x.size()
         # print(B)
-
 
         self.model = self.model.train()
         self.opt.zero_grad()
@@ -314,6 +331,7 @@ if __name__ == '__main__':
     parser.add_argument('--noRandomlyYaw', action='store_true')
     parser.add_argument('--lossType', default='l2')
     parser.add_argument('--lossTimeWeight', default='none', choices=('none','inv'))
+    parser.add_argument('--obs2dSigma', default=0, type=float, help='in pixel scale')
     args = parser.parse_args()
 
     meta = dict(args._get_kwargs())

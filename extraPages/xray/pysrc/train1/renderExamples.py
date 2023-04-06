@@ -12,8 +12,15 @@ frustum_pts = np.array((
     -1,-1,1,
      1,-1,1,
      1, 1,1,
-    # -1, 1,1),dtype=np.float32).reshape(8,3)
-    -1, 1,1),dtype=np.float32).reshape(8,3) * (.5,.5,1)
+    -1, 1,1),dtype=np.float32).reshape(8,3)
+    # -1, 1,1),dtype=np.float32).reshape(8,3) * (.5,.5,1)
+frustum_uvs = np.array((
+    0,0,
+    1,0,
+    1,1,
+    0,1
+    ),dtype=np.float32)
+frustum_face_inds = np.array((0,1,2, 2,3,0), dtype=np.uint16)
 
 def draw_frustum(eye, R, wh, uv, pts2d, pts3d):
     glEnableClientState(GL_VERTEX_ARRAY)
@@ -338,13 +345,16 @@ class ExampleRenderer(ExampleRendererBase):
             CP = np.eye(4,dtype=np.float32)
             CIV[:3,:3] = R.T
             CIV[:3,3 ] = eye
-            n = .01
+            n = .1
             f = 1.
-            # u,v = 1/u, 1/v
-            u,v = 2*u,2*v
+            uu,vv = u, v
+            uu,vv = .5*u, .5*v
+            # uu,vv = 1,1
+            # u,v = 2*u,2*v
             CP[:] = np.array((
-                1/u, 0,0,0,
-                0, -1/v, 0,0,
+                1/uu, 0,0,0,
+                # 0, -1/v, 0,0,
+                0, 1/vv, 0,0,
                 0,0, (f+n)/(f-n), -2*f*n/(f-n),
                 0,0, 1,0),dtype=np.float32).reshape(4,4)
             model = CIV @ np.linalg.inv(CP)
@@ -364,11 +374,13 @@ class ExampleRenderer(ExampleRendererBase):
             glPopMatrix()
 
             # Points.
-            pts0 = self.z.reshape(-1,2) / wh - .5
+            # pts0 = self.z.reshape(-1,2) / wh - .5
+            # pts0 = self.z.reshape(-1,2) * .5 * (u,v)
+            pts0 = self.z.reshape(-1,2) #* 1 * (u,v)
 
             ptsFar = np.ones((pts0.shape[0], 4), dtype=np.float32)
             ptsFar[:,:2] = pts0
-            ptsFar[:,2] *= 1+3e-2
+            ptsFar[:,2] *= 1+3e-0
             ptsFar = (ptsFar @ (model.T))
             # ptsFar = ptsFar[...,:3] / ptsFar[...,3:]
 
