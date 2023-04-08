@@ -145,7 +145,7 @@ class SurfaceRenderer(SingletonApp):
         glViewport(0, 0, *self.wh)
         glMatrixMode(GL_PROJECTION)
         n = .001
-        v = .5
+        v = .9
         u = (v*self.wh[0]) / self.wh[1]
         glLoadIdentity()
         glFrustum(-u*n,u*n,-v*n,v*n,.002,100)

@@ -93,7 +93,7 @@ class Tree:
 def simple_test():
     torch.manual_seed(0)
     maxLvl = 12
-    k = torch.randn(5_000_000, 3)
+    k = torch.randn(55_000_000, 3)
     v = torch.randn(k.size(0))
     ot = Tree()
     for i in range(1):

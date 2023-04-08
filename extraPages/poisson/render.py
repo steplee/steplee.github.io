@@ -14,7 +14,7 @@ def compile_shader(vsrc, fsrc):
 # It took me a few tries to figure out, but basically you want to use N instances and an attribute divisor of 1,
 # where N is the batch size.
 # You render 24 indices per isntance, which are actually 2 inds per the 12 edges. The position offset is handled in
-# the shader. The cube center is the attribute, it is instanced 24x to each vertex shader.
+# the shader. The cube center (or corner) is the attribute, it is instanced 24x to each vertex shader.
 #
 class GridEntity():
     vsrc = '''#version 440
@@ -53,6 +53,7 @@ class GridEntity():
             //pos = pos + .5 * u_size * offsets[lineInds[2*gl_InstanceID+gl_VertexID]];
             //pos = pos + .5 * u_size * offsets[lineInds[gl_InstanceID]];
             pos = pos + .5 * u_size * offsets[lineInds[gl_VertexID]];
+            //pos = pos + .5 * u_size * (offsets[lineInds[gl_VertexID]] + 1.);
 
             vec4 p1 = u_mvp * vec4(pos, 1.);
             gl_Position = p1;
@@ -122,12 +123,17 @@ class GridRenderer(SurfaceRenderer):
         self.gridEnt = GridEntity()
         self.octree_vbos = glGenBuffers(20)
         self.octree_sizes = [0,]*20
+        self.curLvl = 0
 
     def renderGrids(intCoords, sizes):
         pass
 
     def render(self):
         super().render()
+
+        glEnable(GL_DEPTH_TEST)
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
 
         V = glGetFloatv(GL_MODELVIEW_MATRIX).T
         P = glGetFloatv(GL_PROJECTION_MATRIX).T
@@ -152,7 +158,7 @@ class GridRenderer(SurfaceRenderer):
 
             # Do verts.
             L = 1 << lvl
-            coords = coords.t().float().div(float(L)).cpu().numpy()
+            coords = coords.t().float().div(float(L)).cpu().numpy() + (.5/L)
             if lvl == 8: print(verts)
             verts = np.hstack((coords, np.ones_like(coords[:,:1]))).astype(np.float32)
             verts = np.copy(verts,'C')
@@ -162,9 +168,13 @@ class GridRenderer(SurfaceRenderer):
             glBindBuffer(GL_ARRAY_BUFFER, 0)
 
     def render_octree(self, mvp):
+
+        glDisable(GL_DEPTH_TEST)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE)
+
         numLvls = len(self.octree_values)
         minLvl,maxLvl = 0, numLvls
-        lvl = 4
+        lvl = self.curLvl
         minLvl,maxLvl = lvl, lvl+1
         for lvl in range(minLvl,maxLvl):
             # verts,vals = self.octree_verts[lvl], self.octree_values[lvl]
@@ -172,9 +182,15 @@ class GridRenderer(SurfaceRenderer):
             N = self.octree_sizes[lvl]
             L = (1 << lvl)
             W = .95 / L
-            print(N)
             # self.gridEnt.render(verts, W, 1., mvp)
-            self.gridEnt.render(None, W, 1., mvp, coordAlphasVbo=vbo,N=N)
+            self.gridEnt.render(None, W, .4, mvp, coordAlphasVbo=vbo,N=N)
+
+    def keyboard(self, key, x, y):
+        super().keyboard(key,x,y)
+        self.curLvl
+        key = (key).decode()
+        if key == 'k': self.curLvl = max(self.curLvl-1,0)
+        if key == 'l': self.curLvl = min(self.curLvl+1,len(self.octree_values)-1)
 
 
 
@@ -188,7 +204,7 @@ if __name__ == '__main__':
     print(k)
     v = torch.randn(k.size(0))
     ot = Tree()
-    ot.set(k,v, maxLvl=maxLvl, do_average=False)
+    ot.set(k,v, maxLvl=maxLvl, do_average=True)
 
     r = GridRenderer((1024,)*2)
     r.init(True)
