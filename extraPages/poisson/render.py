@@ -111,6 +111,28 @@ class GridEntity():
         glUseProgram(0)
         glBindBuffer(GL_ARRAY_BUFFER, 0)
 
+class MeshEntity():
+    def __init__(self, triPositions):
+        triPositions = triPositions.reshape(-1,3,3)
+        self.vbo = glGenBuffers(1)
+        self.N = len(triPositions)
+        glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
+        glBufferData(GL_ARRAY_BUFFER, triPositions.size*triPositions.itemsize, triPositions, GL_STATIC_DRAW)
+        glBindBuffer(GL_ARRAY_BUFFER, 0)
+
+    def __del__(self):
+        if self.vbo: glDestroyBuffers([self.vbo])
+
+    def render(self):
+        glUseProgram(0)
+        glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
+        # glVertexAttribPointer(0, 3, GL_FLOAT, False, 0, ctypes.c_void_p(0))
+        glEnableClientState(GL_VERTEX_ARRAY)
+        glVertexPointer(3, GL_FLOAT, 0, ctypes.c_void_p(0))
+        glDrawArrays(GL_TRIANGLES, 0, self.N*3)
+        glBindBuffer(GL_ARRAY_BUFFER, 0)
+        glDisableClientState(GL_VERTEX_ARRAY)
+
 
 class GridRenderer(SurfaceRenderer):
     def __init__(self, wh):
@@ -124,6 +146,7 @@ class GridRenderer(SurfaceRenderer):
         self.octree_vbos = glGenBuffers(20)
         self.octree_sizes = [0,]*20
         self.curLvl = 0
+        self.meshes = {}
 
     def renderGrids(intCoords, sizes):
         pass
@@ -148,6 +171,12 @@ class GridRenderer(SurfaceRenderer):
 
         self.render_octree(mvp)
 
+        for k,mesh in self.meshes.items():
+            mesh.render()
+
+    def set_mesh(self, pos, id=0):
+        self.meshes[id] = MeshEntity(pos)
+
     def set_octree(self, octree):
         # self.octree_verts = []
         self.octree_values = []
@@ -168,11 +197,12 @@ class GridRenderer(SurfaceRenderer):
             glBindBuffer(GL_ARRAY_BUFFER, 0)
 
     def render_octree(self, mvp):
+        numLvls = len(self.octree_values)
+        if numLvls == 0: return
 
         glDisable(GL_DEPTH_TEST)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE)
 
-        numLvls = len(self.octree_values)
         minLvl,maxLvl = 0, numLvls
         lvl = self.curLvl
         minLvl,maxLvl = lvl, lvl+1
