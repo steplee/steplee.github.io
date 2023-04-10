@@ -111,25 +111,123 @@ class GridEntity():
         glUseProgram(0)
         glBindBuffer(GL_ARRAY_BUFFER, 0)
 
+# NOTE: Only support variation with pos/col/nrl now (no uvs, no textures)
 class MeshEntity():
-    def __init__(self, triPositions):
-        triPositions = triPositions.reshape(-1,3,3)
+    vsrc = '''#version 440
+
+    in layout(location=0) vec3 a_pos;
+    in layout(location=1) vec4 a_col;
+    in layout(location=2) vec3 a_nrl;
+    //in layout(location=3) vec2 a_uv ;
+
+    uniform layout(location=0) mat4 u_proj;
+    uniform layout(location=1) mat4 u_mv;
+
+    out vec4 v_color;
+    //out vec2 v_uv;
+
+    void main() {
+            vec3 pos1 = a_pos;
+
+            vec4 pos = u_proj * u_mv * vec4(pos1,1.);
+            gl_Position = pos;
+
+            //float lighting = clamp(dot((mat3(u_mv)) * a_nrl, vec3(0.,0,1.)), 0.,1.);
+            float lighting = clamp(abs(dot((mat3(u_mv)) * a_nrl, vec3(0.,0,1.))), 0.,1.);
+
+            vec4 col = a_col;
+            col.rgb *= lighting;
+
+            v_color = col;
+    }
+
+    '''
+    fsrc = '''#version 440
+    in vec4 v_color;
+    //in vec2 v_uv;
+    out vec4 o_color;
+    void main() {
+            o_color = v_color;
+    }
+    '''
+
+
+    def __init__(self,
+                 inds,
+                 positions,
+                 colors=None,
+                 normals=None,
+                 uvs=None,
+                 ):
+        self.prog = compile_shader(MeshEntity.vsrc, MeshEntity.fsrc)
+
+        # print(tuple(a.shape for a in (positions,colors,normals,uvs) if a is not None))
+        verts = np.hstack(tuple(a for a in (positions,colors,normals,uvs) if a is not None))
+        print('verts shape', verts.shape)
+
+        assert positions.ndim == 2
+        self.N = len(positions)
+
+        self.attribs = []
+        # NOTE: Only float32 supported right now.
+
+        # if posRange: self.attribs.append(('a_pos', posRange[1]-posRange[0], 4*posRange[0]))
+        # if colorRange: self.attribs.append(('a_col', colorRange[1]-colorRange[0], 4*colorRange[0]))
+        # if normalRange: self.attribs.append(('a_nrl', normalRange[1]-normalRange[0], 4*normalRange[0]))
+        # if uvRange: self.attribs.append(('a_uv', uvRange[1]-uvRange[0], 4*uvRange[0]))
+        ncomp=0
+        attrs1 = tuple(a.shape[1] if a is not None else None for a in (positions,colors,normals,uvs))
+        attrs2 = ('a_pos a_col a_nrl a_uv').split(' ')
+        for dims, name in zip(attrs1, attrs2):
+            if dims is not None and dims > 0:
+                self.attribs.append( (name, dims, 4*ncomp) )
+                ncomp += dims
+        self.vboStride = 4*ncomp
+        self.haveColor = colors is not None
+        self.haveNormals = normals is not None
+        self.haveUvs = uvs is not None
+
+
+        self.inds = inds.cpu().numpy().astype(np.uint32)
+
+
         self.vbo = glGenBuffers(1)
-        self.N = len(triPositions)
         glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
-        glBufferData(GL_ARRAY_BUFFER, triPositions.size*triPositions.itemsize, triPositions, GL_STATIC_DRAW)
+        glBufferData(GL_ARRAY_BUFFER, verts.size*verts.itemsize, verts, GL_STATIC_DRAW)
         glBindBuffer(GL_ARRAY_BUFFER, 0)
+
 
     def __del__(self):
         if self.vbo: glDestroyBuffers([self.vbo])
 
-    def render(self):
+    def render(self, proj, mv):
         glUseProgram(0)
         glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
-        # glVertexAttribPointer(0, 3, GL_FLOAT, False, 0, ctypes.c_void_p(0))
-        glEnableClientState(GL_VERTEX_ARRAY)
-        glVertexPointer(3, GL_FLOAT, 0, ctypes.c_void_p(0))
-        glDrawArrays(GL_TRIANGLES, 0, self.N*3)
+
+        if 0:
+            # glVertexAttribPointer(0, 3, GL_FLOAT, False, 0, ctypes.c_void_p(0))
+            glEnableClientState(GL_VERTEX_ARRAY)
+            glVertexPointer(3, GL_FLOAT, 0, ctypes.c_void_p(0))
+            glDrawArrays(GL_TRIANGLES, 0, self.N*3)
+
+        if 1:
+            glUseProgram(self.prog)
+
+            glUniformMatrix4fv(0, 1, GL_TRUE, proj)
+            glUniformMatrix4fv(1, 1, GL_TRUE, mv)
+
+            for aidx,(name,size,byteOffset) in enumerate(self.attribs):
+                glEnableVertexAttribArray(aidx)
+                glVertexAttribPointer(aidx, size, GL_FLOAT, GL_FALSE, self.vboStride, ctypes.c_void_p(byteOffset))
+
+            # glDrawArrays(GL_TRIANGLES, 0, self.N*3)
+            # glDrawElements(GL_TRIANGLES, self.inds.size, GL_UNSIGNED_INT, ctypes.c_void_p(0))
+            glDrawElements(GL_TRIANGLES, self.inds.size, GL_UNSIGNED_INT, self.inds)
+
+            for aidx in range(len(self.attribs)):
+                glDisableVertexAttribArray(aidx)
+
+        glUseProgram(0)
         glBindBuffer(GL_ARRAY_BUFFER, 0)
         glDisableClientState(GL_VERTEX_ARRAY)
 
@@ -158,8 +256,8 @@ class GridRenderer(SurfaceRenderer):
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
 
-        V = glGetFloatv(GL_MODELVIEW_MATRIX).T
-        P = glGetFloatv(GL_PROJECTION_MATRIX).T
+        V = np.copy(glGetFloatv(GL_MODELVIEW_MATRIX).T,'C')
+        P = np.copy(glGetFloatv(GL_PROJECTION_MATRIX).T,'C')
         mvp = P @ V
         '''
         coordAlphas = np.array((
@@ -172,10 +270,10 @@ class GridRenderer(SurfaceRenderer):
         self.render_octree(mvp)
 
         for k,mesh in self.meshes.items():
-            mesh.render()
+            mesh.render(P, V)
 
-    def set_mesh(self, pos, id=0):
-        self.meshes[id] = MeshEntity(pos)
+    def set_mesh(self, id, **kw):
+        self.meshes[id] = MeshEntity(**kw)
 
     def set_octree(self, octree):
         # self.octree_verts = []
