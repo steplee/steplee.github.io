@@ -189,24 +189,6 @@ def marching_tetra_tri(positions, vals, scale,  iso, v0,v1,v2,v3, swap):
     # Up to 2 tris each input. Each tri has 3 points. Each point has 3 coords.
     out = torch.zeros((N,2,3,3), device=D)
 
-    def blend(ai,bi):
-        valid_mask = (ai >= 0) & (bi >= 0)
-        ai = ai.clamp(0,8)
-        bi = bi.clamp(0,8)
-
-        av = vals.gather(1,ai.view(-1,1))[:,0]
-        bv = vals.gather(1,bi.view(-1,1))[:,0]
-        ap = p[ai]
-        bp = p[bi]
-
-        mu = (iso - av) / (bv-av)
-        mu.masked_fill_((iso-av).abs() < 1e-8, 0)
-        mu.masked_fill_((iso-bv).abs() < 1e-8, 1)
-        mu.masked_fill_((av-bv).abs() < 1e-8, 0)
-
-        op = positions + ap + mu.view(-1,1)*(bp-ap)
-        op[~valid_mask] = -1
-        return op
 
     for triId in range(2):
         for vertexId in range(3):
@@ -215,15 +197,15 @@ def marching_tetra_tri(positions, vals, scale,  iso, v0,v1,v2,v3, swap):
     # NOTE: The output consists of plenty of <-1,-1,-1> points which should be removed.
     return out
 
-# http://paulbourke.net/geometry/polygonise/source1.c
+# http://paulbourke.net/geometry/polygonise/
 #
-# This is a batched version of the above marching tetrahedra algorithm.
+# This is a batched version of the above marching cubes algorithm.
 #
 # `positions` should be a floating point tensor [N,3] of 3d left-back-top points.
 # `vals` should be a floating point tensor [N,8] of isovalues of each of the points and it's seven neighbours.
 # The order should match that of `replicate_to_gridcells()`: a truth table in ZYX order.
 #
-def marching_tetra(positions, vals, iso=0, gridScale=1):
+def marching_cubes(positions, vals, iso=0, gridScale=1):
     N,D = positions.size(0), positions.device
 
 
@@ -233,21 +215,85 @@ def marching_tetra(positions, vals, iso=0, gridScale=1):
     # positions.div_(scale)
     # vals.div_(scale)
 
-    groups = (
-        (False, (0,2,3,7)),
-        (True , (0,2,6,7)),
-        (False, (0,4,6,7)),
-        (False, (0,6,1,2)),
-        (True , (0,6,1,4)),
-        (False, (5,6,1,4)),
-    )
+    N = positions.size(0)
+    assert positions.size(1) == 3
+    assert vals.size() == (N,8)
+    D = positions.device
+
+    # Must be long -- cannot be byte. That would be interpreted as a mask later on.
+    cubeIndex  = torch.zeros((N), dtype=torch.int64, device=D)
+    for i in range(8):
+        cubeIndex |= (1<<i) * (vals[:,i] < iso).long()
+
+    # NOTE: My triTable differs a little bit from Bourke's
+    # He uses a loop until any -1 is read.
+    # Here I increment the ids of vertList and have the zero index be invalid.
+    from marching_cubes_data import edgeTable, triTable
+    # edgeTable = torch.zeros((256), dtype=torch.long, device=D)
+    # triTable  = torch.zeros((256,5,3), dtype=torch.long, device=D)
+    edgeTable = torch.from_numpy(edgeTable).to(D)
+    triTable  = torch.from_numpy(triTable).to(D)[:,:15].view(256,5,3) + 1
+
+    # av = vals.gather(1,ai.view(-1,1))[:,0]
+    edges = edgeTable.gather(0, cubeIndex)
+    tris  = triTable[cubeIndex]
+    print(f' - tris  size {tris.shape}')
+
+    p = torch.FloatTensor([
+        0,0,0, 1,0,0, 1,1,0, 0,1,0,
+        0,0,1, 1,0,1, 1,1,1, 0,1,1]).to(D).reshape(-1,3) * gridScale
+    def blend(ai,bi):
+        # valid_mask = (ai >= 0) & (bi >= 0)
+        # ai = ai.clamp(0,8)
+        # bi = bi.clamp(0,8)
+
+        # av = vals.gather(1,ai.view(-1,1))[:,0]
+        # bv = vals.gather(1,bi.view(-1,1))[:,0]
+        # ap = p[ai]
+        # bp = p[bi]
+        av = vals[:,ai]
+        bv = vals[:,bi]
+        ap = p[ai]
+        bp = p[bi]
+
+        mu = (iso - av) / (bv-av)
+        mu.masked_fill_((iso-av).abs() < 1e-8, 0)
+        mu.masked_fill_((iso-bv).abs() < 1e-8, 1)
+        mu.masked_fill_((av-bv).abs() < 1e-8, 0)
+
+        op = positions + ap + mu.view(-1,1)*(bp-ap)
+        # op[~valid_mask] = -1
+        return op
+
+    vertList = torch.zeros((N,13,3),dtype=torch.float32)
+    vertGroups = (
+            (-1,-1),
+            (0,1), (1,2), (2,3), (3,0), (4,5), (5,6),
+            (6,7), (7,4), (0,4), (1,5), (2,6), (3,7) )
+    for i,(ai,bi) in enumerate(vertGroups):
+        # edge zero is made to be invalid (x=y=z=-1)
+        if i == 0: vertList[:,i,:] = -1
+        else:
+            # ai = torch.full((N,),ai, dtype=torch.long, device=D)
+            # bi = torch.full((N,),bi, dtype=torch.long, device=D)
+            vertList[:,i,:] = blend(ai,bi)
+
+    # I finally understand how gather works.
+    out = torch.zeros((N,5,3,3),dtype=torch.float32)
+    for triIdx in range(5):
+        for j in range(3):
+            out[:,triIdx,j] = vertList.gather(1,tris[:,triIdx,j].view(N,1,1).repeat(1,1,3))[:,0,:]
+
+
+
+
 
     # o = marching_tetra_tri(positions, vals, iso, 0,2,3,7)
     # print(f' - positions {positions.min(0).values} -> {positions.max(0).values}')
     # print(' - using grid scale', 1/gridScale)
-    out = torch.zeros((N,len(groups),2,3,3), device=D)
-    for i,(swap,grp) in enumerate(groups):
-        out[:, i] = marching_tetra_tri(positions, vals, gridScale, iso, *grp, swap=swap)
+    # out = torch.zeros((N,len(groups),2,3,3), device=D)
+
+
 
     # Array of triangle vertex components.
     out1 = out.view(-1,9)
@@ -314,7 +360,7 @@ def marching_tetra(positions, vals, iso=0, gridScale=1):
 
     return out2
 
-def test_marching_tetra():
+def test_marching_cubes():
     SZ = 32
     coords = torch.cartesian_prod(*(torch.arange(SZ),)*3)
     # vals = coords[:, 0] / coords[:,0].max()
@@ -344,16 +390,16 @@ def test_marching_tetra():
         vals = vals[:,0].unsqueeze(0).repeat(coords.size(0), 1).cuda()
 
     print(f' - input sizes: {positions.shape}, {vals.shape}')
-    # marching_tetra(positions,vals, iso=.5)
+    # marching_cubes(positions,vals, iso=.5)
     print('vals max',vals.max())
     print('vals min',vals.min())
     # print('- replicated positions\n', positions)
     # print('- replicated vals\n', vals)
-    # marching_tetra(positions,vals, iso=.0)
+    # marching_cubes(positions,vals, iso=.0)
     # vals = vals - vals.min()
     # vals = vals / vals.max()
     # NOTE: A small non-zero isovalue gets rid of grid-borders apparenlty
-    marching_tetra(positions,vals, iso=1e-6, gridScale=gridScale)
+    marching_cubes(positions,vals, iso=1e-6, gridScale=gridScale)
     sys.exit(0)
 
 
@@ -473,4 +519,5 @@ if 0:
 
 
 
-test_marching_tetra()
+test_marching_cubes()
+

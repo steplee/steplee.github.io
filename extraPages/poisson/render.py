@@ -134,6 +134,8 @@ class MeshEntity():
 
             //float lighting = clamp(dot((mat3(u_mv)) * a_nrl, vec3(0.,0,1.)), 0.,1.);
             float lighting = clamp(abs(dot((mat3(u_mv)) * a_nrl, vec3(0.,0,1.))), 0.,1.);
+            lighting = clamp(pow(lighting, 2.) * 2., 0.,1.5);
+            //lighting = 1.;
 
             vec4 col = a_col;
             col.rgb *= lighting;
@@ -158,6 +160,7 @@ class MeshEntity():
                  colors=None,
                  normals=None,
                  uvs=None,
+                 wireframe=False,
                  ):
         self.prog = compile_shader(MeshEntity.vsrc, MeshEntity.fsrc)
 
@@ -188,13 +191,31 @@ class MeshEntity():
         self.haveUvs = uvs is not None
 
 
-        self.inds = inds.cpu().numpy().astype(np.uint32)
-
+        # self.inds = inds.cpu().numpy().astype(np.uint32)
+        ids = inds.cpu().numpy().astype(np.uint32)
+        self.ninds = ids.size
+        self.ibo = glGenBuffers(1)
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.ibo)
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, ids.size*ids.itemsize, ids, GL_STATIC_DRAW)
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0)
 
         self.vbo = glGenBuffers(1)
         glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
         glBufferData(GL_ARRAY_BUFFER, verts.size*verts.itemsize, verts, GL_STATIC_DRAW)
         glBindBuffer(GL_ARRAY_BUFFER, 0)
+
+        # WARNING: Should just use same IBO and use glPolygonMode and glPolygonOffset
+        if wireframe:
+            wire = np.concatenate((
+                ids[:, [0,1]],
+                ids[:, [0,2]],
+                ids[:, [1,2]]))
+            self.wireframeIbo = glGenBuffers(1)
+            self.nindsWire = wire.size
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.wireframeIbo)
+            glBufferData(GL_ELEMENT_ARRAY_BUFFER, wire.size*wire.itemsize, wire, GL_STATIC_DRAW)
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0)
+        else: self.wireframeIbo = None
 
 
     def __del__(self):
@@ -203,12 +224,7 @@ class MeshEntity():
     def render(self, proj, mv):
         glUseProgram(0)
         glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
-
-        if 0:
-            # glVertexAttribPointer(0, 3, GL_FLOAT, False, 0, ctypes.c_void_p(0))
-            glEnableClientState(GL_VERTEX_ARRAY)
-            glVertexPointer(3, GL_FLOAT, 0, ctypes.c_void_p(0))
-            glDrawArrays(GL_TRIANGLES, 0, self.N*3)
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.ibo)
 
         if 1:
             glUseProgram(self.prog)
@@ -221,15 +237,37 @@ class MeshEntity():
                 glVertexAttribPointer(aidx, size, GL_FLOAT, GL_FALSE, self.vboStride, ctypes.c_void_p(byteOffset))
 
             # glDrawArrays(GL_TRIANGLES, 0, self.N*3)
-            # glDrawElements(GL_TRIANGLES, self.inds.size, GL_UNSIGNED_INT, ctypes.c_void_p(0))
-            glDrawElements(GL_TRIANGLES, self.inds.size, GL_UNSIGNED_INT, self.inds)
+            glDrawElements(GL_TRIANGLES, self.ninds, GL_UNSIGNED_INT, ctypes.c_void_p(0))
+            # glDrawElements(GL_TRIANGLES, self.inds.size, GL_UNSIGNED_INT, self.inds)
 
             for aidx in range(len(self.attribs)):
                 glDisableVertexAttribArray(aidx)
 
+
         glUseProgram(0)
         glBindBuffer(GL_ARRAY_BUFFER, 0)
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0)
         glDisableClientState(GL_VERTEX_ARRAY)
+
+        if self.wireframeIbo:
+            glColor4f(1,1,1,.5)
+            # This is a hack, but it works. See above warning
+            glDepthRange(0,.99999)
+            # glEnable(GL_POLYGON_OFFSET_LINE)
+            # glEnable(GL_POLYGON_OFFSET_FILL)
+            # glPolygonOffset(-1,-1)
+            glEnableClientState(GL_VERTEX_ARRAY)
+            glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.wireframeIbo)
+            glVertexPointer(3, GL_FLOAT, self.vboStride, ctypes.c_void_p(0))
+            glDrawElements(GL_LINES, self.nindsWire, GL_UNSIGNED_INT, ctypes.c_void_p(0))
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0)
+            glBindBuffer(GL_ARRAY_BUFFER, 0)
+            glDisableClientState(GL_VERTEX_ARRAY)
+            # glDisable(GL_POLYGON_OFFSET_LINE)
+            # glDisable(GL_POLYGON_OFFSET_FILL)
+            # glPolygonOffset(0,0)
+            glDepthRange(0,1)
 
 
 class GridRenderer(SurfaceRenderer):
