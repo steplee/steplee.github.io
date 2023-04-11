@@ -121,8 +121,8 @@ class SingletonApp:
         self.pickedPointClipSpace = np.array((x,y,1)) * z
 
 class SurfaceRenderer(SingletonApp):
-    def __init__(self, wh):
-        super().__init__(wh, 'SurfaceRenderer')
+    def __init__(self, wh, name='PoissonProject'):
+        super().__init__(wh, name)
         self.q_pressed = False
         self.n_pressed = False
         self.mprev = np.array((-1,0))

@@ -219,7 +219,9 @@ class MeshEntity():
 
 
     def __del__(self):
-        if self.vbo: glDestroyBuffers([self.vbo])
+        if self.vbo: glDeleteBuffers(1,[self.vbo])
+        if self.ibo: glDeleteBuffers(1,[self.ibo])
+        if self.wireframeIbo: glDeleteBuffers(1,[self.wireframeIbo])
 
     def render(self, proj, mv):
         glUseProgram(0)

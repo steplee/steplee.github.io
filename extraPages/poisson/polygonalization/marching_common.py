@@ -1,8 +1,263 @@
+import torch, torch.nn.functional as F
+import numpy as np, sys
+torch.set_printoptions(linewidth=150, edgeitems=10)
+
+'''
+Bourke marching cubes/tetra needs an array of gridcells.
+Each gridcell contains data about 8 corners
+This is like a sparse conv that replicates information about its neighbors to each point.
+
+The input is a sparse tensor with 1d values as an isofunction.
+The output is a sparse tensor with the same coordinates, and 8d values that
+are the original value and 7 neighbors.
+
+NOTE: This 'dualizes' the input: voxels are turned into corners of cubes.
+
+FIXME: Properly handle boundaries. Right now, the boundary points are implicitly given value zero.
+
+FIXME: Not tested with missing inner points (which *will* happen). Probably fill in like boundaries (which is also a todo)
+
+'''
+def replicate_to_gridcells(sparseTensor):
+    c = sparseTensor.indices()
+    v = sparseTensor.values()
+    D = c.device
+
+    N = c.size(1)
+    # Dense-dim + sparse-dim
+    size = (*sparseTensor.size(), 8)
+    ov = torch.zeros((N,8), device=D)
+    out = torch.sparse_coo_tensor(c,ov,size=size).coalesce()
+
+    stencil = torch.sparse_coo_tensor(c, torch.ones_like(ov), size=size).coalesce()
+
+    grid = [
+        (0,0,0), (1,0,0), (1,1,0), (0,1,0),
+        (0,0,1), (1,0,1), (1,1,1), (0,1,1)]
+    # grid = [
+        # (0,0,0), (1,0,0), (1,0,1), (0,0,1),
+        # (0,1,0), (1,1,0), (1,1,1), (0,1,1)]
+
+    for idx, (dx,dy,dz) in enumerate(grid):
+                off = torch.LongTensor([dx,dy,dz]).to(c.device).view(3,1)
+
+                coff = c.clone() - off
+                # coff = c.clone() + off
+                voff = ov.clone()
+                voff[...,idx] = v
+                mask  = (coff>=0).all(0)
+                mask &= (coff<torch.LongTensor(list(sparseTensor.size())).to(D)[:3].view(3,1)).all(0)
+                voff = voff[mask]
+                coff = coff[:,mask]
+                toff = stencil * torch.sparse_coo_tensor(coff, voff, size=size).coalesce()
+
+                out += toff
+
+                # Use this if running out of RAM
+                # out = out.coalesce()
+
+    out = out.coalesce()
+    return out
+
+def test_replicate():
+    coo = torch.cuda.FloatTensor([
+        0,0,0,
+        0,1,0,
+        0,1,1,
+        0,0,1,
+
+        1,5,1,
+        2,5,1,
+        1,6,1,
+        ]).view(-1,3).t().contiguous()
+    val = torch.cuda.FloatTensor([1,2,3,4, 1,1,1])
+
+    coo = torch.cuda.FloatTensor([
+        4,4,4,
+
+        4,4,4+1,
+        4+1,4,4+1,
+        4+1,4,4,
+        4,4,4,
+        4,4+1,4+1,
+        4+1,4+1,4+1,
+        4+1,4+1,4,
+        4,4+1,4,
+        ]).view(-1,3).t().contiguous()
+    val = torch.cuda.FloatTensor([0, 1,2,3,4,5,6,7,8])
+
+    st0 = torch.sparse_coo_tensor(coo,val, size=(10,10,10)).coalesce()
+
+    st1 = replicate_to_gridcells(st0)
+    print('Initial:\n', st0)
+    print('Final:\n', st1)
+    sys.exit(0)
+# test_replicate()
+
+def compute_normal_batch(p, normalize=False):
+    assert p.ndim == 3 and p.size(1) == 3 and p.size(2) == 3
+    # Subtract a from b and c, then cross those results
+    aff = p[:, 1:, :] - p[:, 0:1, :]
+    n = torch.cross(aff[:, 0], aff[:, 1])
+    if normalize:
+        n.div_(n.norm(dim=1, keepdim=True))
+    return n
+
+'''
+From a flat tensor [N,3] of positions, and a tensor of triangle inds [N,3],
+compute [N,3] normals averaged amongst face normals.
+'''
+def compute_normals(positions, triInds, normalizeByFaceSize=False):
+    triInds = triInds.view(-1,3).long()
+    NV = positions.size(0)
+    NT = triInds.size(0)
+
+    nrmls = torch.zeros_like(positions)
+
+    # [NT, 3, 3]
+    triPts = positions[triInds]
+    # [NT, 3]
+    # NOTE: We *DO NOT* normalize the raw cross products.
+    #       This makes weight to final normal proportional to face size.
+    crossed = compute_normal_batch(triPts, normalize=normalizeByFaceSize)
+
+    # We have to go from [NT,3] back to [NV,3] entries.
+    # We'll use a sparse tensor again.
+    coo = triInds.view(1,-1)
+    val = crossed.view(NT, 1, 3).repeat(1,3,1).view(NT*3,3)
+
+    # We are gauranteed to have correct order, so just get values
+    nrls = torch.sparse_coo_tensor(coo, val).coalesce().values()
+    nrls = nrls.div_(nrls.norm(dim=1,keepdim=True))
+    return nrls
+
+'''
+Using vertex clustering on a certain sized grid, merge de-duplicate an input [N,3,3] tensor of triangles.
+Return:
+    [NV,3] de-duplicated positions
+    [NT,3] triangle indices
+with NV <= N and NT <= N.
+'''
+def merge_duplicate_verts(triVerts, powTwoResolution=20):
+    assert triVerts.ndim == 3
+    assert triVerts.size(1) == 3
+    assert triVerts.size(2) == 3
+    assert powTwoResolution <= 21
+    NT = triVerts.size(0)
+    N = NT*3
+
+    vertsFlat = triVerts.view(N,3)
+    SIZE = 1<<powTwoResolution
+    offset = vertsFlat.min(0).values.unsqueeze(0)
+    c = vertsFlat - offset
+    scale = (SIZE-1) / c.max()
+    c.mul_(scale)
+    c = c.t().long()
+
+    # NOTE: What I really need is thrust::sort_by_key() thrust::inclusive_scan_by_key() that simply keeps the first value.
+    #       coalesce() sorts-by-key then unconditionally thrust::reduce_by_key()s with a sum operation.
+    #       If I could even get it to do a min operation, I could get it to work. But any arithmetic trick seems to rely on
+    #       an integer encoding that grows as n^n, making it unrealistic. I think you could do this in 3x3x3 subgrids, but
+    #       that's pretty inelegant.
+
+    '''
+    b = (N+1)*(N+1)
+    # v = 1+torch.arange(N,device=c.device,dtype=torch.int64) * b
+    rng = torch.arange(N,device=c.device,dtype=torch.int64)
+    v = (1+rng) + b ** (rng)
+
+    t = torch.sparse_coo_tensor(c,v, size=(SIZE,)*3).coalesce()
+
+    o_verts = t.indices().t().float()
+    o_verts.div_(scale)
+    o_verts.add_(offset)
+
+    out = []
+    left = t.values()
+    ii = 0
+    print('b',b)
+    print('v',v)
+    print('original',left)
+    while len(left):
+        # cur = left[(left>0) & (left < b)]
+        cur = left
+        print('ii',ii,'have',len(cur))
+        if len(cur):
+            cur = cur % b
+            print('have ids', cur)
+        left = left - b
+        # left = left // b
+        left = left[left>0]
+        ii += 1
+        if ii > 15: break
+    '''
+
+    # values grow as n^n, not possible.  :(
+    '''
+    # b = (N+1)*(N+1)
+    N = 100
+    b = (N+1)
+    rng = torch.arange(N,device=c.device,dtype=torch.int64)
+    # v = (1+rng) * (b ** (rng))
+    v = (1+rng) * (b * (rng))
+    # v = (1+rng) * ((rng) ** b)
+
+    lv = v.log10() / np.log10(b)
+    print(v)
+    print(lv)
+    '''
+
+
+    # FIXME: cpu hash-map impl for now
+    c = c.t().cpu().numpy().view(np.uint64) # [N,3]
+    # cc = (c[:,2] << 60) | (c[:,1] << 40) | (c[:,0] & ((1<<20)-1))
+    Z = 0b111111111111111111110000000000000000000000000000000000000000
+    Y = 0b000000000000000000001111111111111111111100000000000000000000
+    X = 0b000000000000000000000000000000000000000011111111111111111111
+    cc = ((c[:,2] << 40)&Z) | ((c[:,1] << 20)&Y) | (c[:,0]&X)
+    # cc = [tuple(a) for a in c]
+    d = {}
+    # print(N,cc.shape)
+    for i,k in enumerate(cc):
+        if k in d: d[k].append(i)
+        else: d[k] = [i]
+
+    o_verts = []
+    o_tris = -np.ones((NT*3),dtype=np.int32)
+    # print(d)
+    for k,vertIdList in d.items():
+        vi = len(o_verts)
+        o_verts.append(vertsFlat[vertIdList[0]])
+        for ii in vertIdList:
+            o_tris[ii] = vi
+    assert (o_tris >= 0).all()
+
+    o_tris = torch.from_numpy(o_tris.reshape(-1,3).view(np.int32))
+    o_verts = torch.stack(o_verts)
+
+    # print(o_verts)
+    # print(o_tris)
+
+    return o_verts, o_tris
+
+if 0:
+    verts = torch.FloatTensor([
+        0,0,0,
+        .5,.5,0,
+        .5,.0,0,
+
+        .5,.0,0,
+        .5,.5,0,
+        1,1,0]).view(-1,3,3).cuda()
+    merge_duplicate_verts(verts)
+    exit()
+
+
 import numpy as np
 
 # Copied from http://paulbourke.net/geometry/polygonise/
-# Transformed with regex replace.
-edgeTable = np.array(
+# modified the tri table.
+marchingCubes_edgeTable = np.array(
 [ 0x0  , 0x109, 0x203, 0x30a, 0x406, 0x50f, 0x605, 0x70c,
 0x80c, 0x905, 0xa0f, 0xb06, 0xc0a, 0xd03, 0xe09, 0xf00,
 0x190, 0x99 , 0x393, 0x29a, 0x596, 0x49f, 0x795, 0x69c,
@@ -35,7 +290,7 @@ edgeTable = np.array(
 0x69c, 0x795, 0x49f, 0x596, 0x29a, 0x393, 0x99 , 0x190,
 0xf00, 0xe09, 0xd03, 0xc0a, 0xb06, 0xa0f, 0x905, 0x80c,
 0x70c, 0x605, 0x50f, 0x406, 0x30a, 0x203, 0x109, 0x0   ], dtype=np.int64)
-triTable = np.array(
+marchingCubes_triTable = np.array(
 [[-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1],
 [0, 8, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1],
 [0, 1, 9, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1],
