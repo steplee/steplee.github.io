@@ -126,13 +126,18 @@ def solve_steepest_descent(A, b, x0, T):
     xi = x0
     for i in range(T):
         r = b - A@xi
-        a = (r@r) / (r@A@r + 1e-9)
+        # a = (r@r) / (r@A@r + 1e-9)
+        a = (r@r) / ((A@r)@r.T + 1e-9)
         xi1 = xi + a*r
         xi = xi1
         if r.norm() < 1e-7: break
     return xi
 
 def solve_jacobi(A, b, x0, T):
+    if A.is_sparse:
+        print(' - Jacobi not implemented for sparse matrices')
+        return x0
+
     # Split Matrix
     D = A * torch.eye(A.size(0))
     E = A - D
@@ -149,11 +154,22 @@ def solve_jacobi(A, b, x0, T):
         xi = B @ xi + z
     return xi
 
+def get_diag(A):
+    if A.is_sparse:
+        n = A.size(0)
+        S = torch.sparse_coo_tensor(torch.arange(n).unsqueeze_(0).repeat(2,1).to(A.device), torch.ones(n,device=A.device), size=(n,n))
+        B = (A * S).coalesce()
+        d = torch.zeros(n, device=A.device, dtype=A.dtype)
+        d[B.indices()[0]] = B.values() # ind[0] = ind[1] so this is correct
+        return d
+    else:
+        return A.diag()
+
 # Only allows jacobi (diagonal) preconditioning
-def solve_cg(A, b, x0, T, preconditioned=False):
+def solve_cg(A, b, x0, T, preconditioned=False, debug=False):
     x = x0
     r = b - A @ x
-    Minv = 1./A.diag() if preconditioned else None
+    Minv = 1./get_diag(A) if preconditioned else None
     # Minv = torch.eye(x.size(0)).diag()
     d = r if not preconditioned else Minv * r
 
@@ -164,9 +180,12 @@ def solve_cg(A, b, x0, T, preconditioned=False):
 
     # FIXME: Shewchuk avoids r1 by storing the inner product for the next iter (he calls delta_new and delta_old)
     for i in range(T):
-        ds.append(d); rs.append(r)
+        if debug: ds.append(d); rs.append(r)
 
-        a = ((r@r) if not preconditioned else (r@(Minv*r))) / (d@A@d)
+        # WARNING: Interesting the order of the mult changes accuracy of CG/PCG (and more difference when sparse)
+        # a = ((r@r) if not preconditioned else (r@(Minv*r))) / (d@A@d)
+        a = ((r@r) if not preconditioned else (r@(Minv*r))) / (d@(A@d))
+
         x = x + a * d
         r1 = r - a * (A@d)
         if not preconditioned:
@@ -180,11 +199,13 @@ def solve_cg(A, b, x0, T, preconditioned=False):
         r = r1
         if r.norm() < 1e-7: break
 
-    ds = torch.stack(ds[:8],0)
-    rs = torch.stack(rs[:8],0)
-    print(f' - first 8 ds A-conjugacy:\n{ds@A@ds.mT}') # The point is to have zeros on the off-diagonals here
-    # print(f' - rs A-conjugacy:\n{rs@A@rs.mT}')
-
+    if debug:
+        ds = torch.stack(ds[:8],0)
+        rs = torch.stack(rs[:8],0)
+        # print(f' - first 8 ds A-conjugacy:\n{ds@A@ds.mT}') # The point is to have zeros on the off-diagonals here
+        # print(f' - first 8 ds A-conjugacy:\n{(A@ds.mT)@ds}') # The point is to have zeros on the off-diagonals here
+        print(f' - first 8 ds A-conjugacy:\n{ds@(A@ds.mT)}') # The point is to have zeros on the off-diagonals here
+        # print(f' - rs A-conjugacy:\n{rs@A@rs.mT}')
     return x
 
 
@@ -193,6 +214,9 @@ def solve_cg(A, b, x0, T, preconditioned=False):
 if 1:
     torch.set_printoptions(linewidth=120, sci_mode=False)
     A, b, x = get_problem_1()
+
+    # Sparsify
+    A = A.to_sparse()
 
     N = b.size(0)
     x0 = torch.full((N,), -2.)
@@ -209,4 +233,4 @@ if 1:
     run_generic(A, b, x, T, x0, solve_func=solve_cg)
     print('\n**********************************')
     print(' Running PCG')
-    run_generic(A, b, x, T, x0, solve_func=solve_cg, preconditioned=True)
+    run_generic(A, b, x, T, x0, solve_func=solve_cg, preconditioned=True, debug=True)
