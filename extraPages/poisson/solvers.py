@@ -1,4 +1,4 @@
-import torch, torch.nn.functional as F
+import torch, torch.nn.functional as F, time
 
 '''
 Mostly just some linear algebra and calculus review.
@@ -166,7 +166,7 @@ def get_diag(A):
         return A.diag()
 
 # Only allows jacobi (diagonal) preconditioning
-def solve_cg(A, b, x0, T, preconditioned=False, debug=False):
+def solve_cg(A, b, x0, T, preconditioned=False, debug=False, debugConj=False):
     x = x0
     r = b - A @ x
     Minv = 1./get_diag(A) if preconditioned else None
@@ -178,9 +178,12 @@ def solve_cg(A, b, x0, T, preconditioned=False, debug=False):
 
     T = min(T, len(b)*2)
 
+    if debug: print(' - residual norm at start', (b-A@x).norm())
+    st = time.time()
+
     # FIXME: Shewchuk avoids r1 by storing the inner product for the next iter (he calls delta_new and delta_old)
     for i in range(T):
-        if debug: ds.append(d); rs.append(r)
+        if debugConj: ds.append(d); rs.append(r)
 
         # WARNING: Interesting the order of the mult changes accuracy of CG/PCG (and more difference when sparse)
         # a = ((r@r) if not preconditioned else (r@(Minv*r))) / (d@A@d)
@@ -199,7 +202,10 @@ def solve_cg(A, b, x0, T, preconditioned=False, debug=False):
         r = r1
         if r.norm() < 1e-7: break
 
-    if debug:
+    if debug: print(' - residual norm at   end', (b-A@x).norm())
+    if debug: print(' - {} steps in {:.2f}ms'.format(i, (time.time() - st)*1000))
+
+    if debugConj:
         ds = torch.stack(ds[:8],0)
         rs = torch.stack(rs[:8],0)
         # print(f' - first 8 ds A-conjugacy:\n{ds@A@ds.mT}') # The point is to have zeros on the off-diagonals here
@@ -211,7 +217,7 @@ def solve_cg(A, b, x0, T, preconditioned=False, debug=False):
 
 
 
-if 1:
+if __name__ == '__main__':
     torch.set_printoptions(linewidth=120, sci_mode=False)
     A, b, x = get_problem_1()
 
@@ -233,4 +239,4 @@ if 1:
     run_generic(A, b, x, T, x0, solve_func=solve_cg)
     print('\n**********************************')
     print(' Running PCG')
-    run_generic(A, b, x, T, x0, solve_func=solve_cg, preconditioned=True, debug=True)
+    run_generic(A, b, x, T, x0, solve_func=solve_cg, preconditioned=True, debug=True, debugConj=True)

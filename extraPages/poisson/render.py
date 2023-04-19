@@ -164,6 +164,11 @@ class MeshEntity():
                  ):
         self.prog = compile_shader(MeshEntity.vsrc, MeshEntity.fsrc)
 
+        positions = positions.cpu().numpy()
+        colors = colors.cpu().numpy()
+        normals = normals.cpu().numpy()
+        if uvs: uvs = uvs.cpu().numpy()
+
         # print(tuple(a.shape for a in (positions,colors,normals,uvs) if a is not None))
         verts = np.hstack(tuple(a for a in (positions,colors,normals,uvs) if a is not None))
         print('verts shape', verts.shape)
@@ -219,9 +224,9 @@ class MeshEntity():
 
 
     def __del__(self):
-        if self.vbo: glDeleteBuffers(1,[self.vbo])
-        if self.ibo: glDeleteBuffers(1,[self.ibo])
-        if self.wireframeIbo: glDeleteBuffers(1,[self.wireframeIbo])
+        if hasattr(self,'vbo') and self.vbo: glDeleteBuffers(1,[self.vbo])
+        if hasattr(self,'ibo') and self.ibo: glDeleteBuffers(1,[self.ibo])
+        if hasattr(self,'wireframeIbo') and self.wireframeIbo: glDeleteBuffers(1,[self.wireframeIbo])
 
     def render(self, proj, mv):
         glUseProgram(0)

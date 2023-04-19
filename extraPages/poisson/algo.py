@@ -3,6 +3,7 @@ import numpy as np, sys
 torch.set_printoptions(linewidth=150, edgeitems=10)
 
 from solvers import solve_cg
+from polygonalization.run_marching_algo import run_marching, show_marching_viz
 
 '''
 
@@ -338,7 +339,7 @@ def backward_from_grid(x, off, scale):
 
 
 # Sparse 3d convolution.
-def form_system(pts0, nrmls0, D=6):
+def form_system(pts0, nrmls0, D=5):
     dev = pts0.device
 
     # print(f' - stencil {stencil.shape}')
@@ -592,9 +593,27 @@ def form_system(pts0, nrmls0, D=6):
     print(v.shape)
     x0 = torch.zeros(SO, device=dev)
 
-    x1 = solve_cg(L, v, x0, T=100, preconditioned=True)
+    # x1 = solve_cg(L, v, x0, T=3, preconditioned=True, debug=True)
+    x1 = solve_cg(L, v, x0, T=1000, preconditioned=True, debug=True)
 
-    print(x1)
+    # print(x1)
+
+
+    # -----------------------------------------------------------------------------------------------------------
+    # Polygonizalation
+    #
+
+    Ic,Iv = torch.empty((3,0),dtype=torch.long,device=dev), torch.empty((0),dtype=torch.float32,device=dev)
+    for D,W in iter_stencil(stencil_st):
+        Ic = torch.cat((Ic, coo2 - D.view(3,1)), 1)
+        Iv = torch.cat((Iv, torch.full((SO,),W.item(),dtype=torch.float32,device=dev)), 0)
+
+    I = torch.sparse_coo_tensor(Ic,Iv, size=(size,size,size)).coalesce()
+    print(f' - I sizes (uncoalesced {Ic.size(1)}) (final nnz {I._nnz()}={I.indices().size(1)})')
+
+    positions, inds = run_marching(I, isolevel=.13)
+    print(positions.device, inds.device)
+    show_marching_viz(positions, inds)
 
 
 
@@ -602,14 +621,17 @@ def form_system(pts0, nrmls0, D=6):
 
 
 torch.manual_seed(0)
-pts   = torch.randn(512, 3).cuda()
+# pts   = torch.randn(512, 3).cuda()
+pts   = torch.randn(512*16, 3).cuda()
+# pts   = torch.randn(512*2048, 3).cuda()
 # pts   = torch.randn(int(1e6), 3).cuda()
 # pts   = torch.randn(int(1e6), 3).cuda()
 # pts   = torch.randn(1, 3).cuda()
 pts[0] = torch.cuda.FloatTensor((.5,0,0))
 pts   = pts / pts.norm(dim=1,keepdim=True)
+pts = pts * .5
 nrmls = pts
 print(' - pts  :\n', pts)
 print(' - nrmls:\n', nrmls)
-# form_system(pts, nrmls)
-viz_box()
+form_system(pts, nrmls)
+# viz_box()

@@ -56,7 +56,7 @@ def marching_cubes(positions, vals, iso=0, gridScale=1):
         # op[~valid_mask] = -1
         return op
 
-    vertList = torch.zeros((N,13,3),dtype=torch.float32)
+    vertList = torch.zeros((N,13,3),dtype=torch.float32,device=D)
     vertGroups = (
             (-1,-1),
             (0,1), (1,2), (2,3), (3,0), (4,5), (5,6),

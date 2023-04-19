@@ -232,7 +232,7 @@ def merge_duplicate_verts(triVerts, powTwoResolution=20):
             o_tris[ii] = vi
     assert (o_tris >= 0).all()
 
-    o_tris = torch.from_numpy(o_tris.reshape(-1,3).view(np.int32))
+    o_tris = torch.from_numpy(o_tris.reshape(-1,3).view(np.int32)).to(triVerts.device)
     o_verts = torch.stack(o_verts)
 
     # print(o_verts)
