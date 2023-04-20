@@ -15,7 +15,8 @@ def run_marching(isovalue_st0, isolevel=1e-6, method='cubes'):
     coords,vals = st.indices().t(), st.values()
 
     gridScale = 1./SZ
-    positions = (st.indices() - SZ // 2).float().t() * gridScale
+    gridOff = -SZ//2
+    positions = (st.indices() + gridOff).float().t() * gridScale
     vals = st.values()
 
     # print(f' - input sizes: {positions.shape}, {vals.shape}')
@@ -47,10 +48,10 @@ def run_marching(isovalue_st0, isolevel=1e-6, method='cubes'):
         positions = marched.to(torch.float32).reshape(-1,3)
         inds = torch.arange(positions.size(0)).to(torch.int32).view(-1,3)
 
-    return positions, inds
+    return positions, inds, (gridOff,gridScale)
 
 # Run a viz showing the mesh, after computing normals and using them as colors.
-def show_marching_viz(positions, triInds):
+def show_marching_viz(positions, triInds, pts=None, nrls=None):
     inds = triInds
 
     normals = compute_normals(positions, inds)
@@ -73,8 +74,9 @@ def show_marching_viz(positions, triInds):
             positions=positions,
             colors=colors,
             normals=normals,
-            wireframe=True
-            )
+            wireframe=True)
+    if pts is not None:
+        r.set_points_and_normals('ptsNrls',pts=pts.cpu().numpy(),nrls=nrls.cpu().numpy())
     # glDisable(GL_CULL_FACE)
     glEnable(GL_CULL_FACE)
 
@@ -94,7 +96,7 @@ def test_marching(method='cubes'):
     # vals = (coords - (SZ+.5)/2).float().norm(dim=1) - .5
 
     st0 = torch.sparse_coo_tensor(coords.t(),vals, size=(SZ,)*3).coalesce()
-    positions, inds = run_marching(st0, method=method)
+    positions, inds, gridXform = run_marching(st0, method=method)
 
 
     print('max ind', inds.max())

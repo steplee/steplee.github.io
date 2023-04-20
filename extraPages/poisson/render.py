@@ -276,6 +276,35 @@ class MeshEntity():
             # glPolygonOffset(0,0)
             glDepthRange(0,1)
 
+class PtsAndNormalsEntity():
+    def __init__(self, pts, nrls, scale=.001):
+        self.vbo = glGenBuffers(1)
+        self.n = len(pts)
+        verts = np.hstack((pts,pts+nrls*scale))
+        print(verts)
+        glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
+        glBufferData(GL_ARRAY_BUFFER, verts.size*verts.itemsize, verts, GL_STATIC_DRAW)
+        glBindBuffer(GL_ARRAY_BUFFER, 0)
+    def render(self, P,V):
+        glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
+
+        glEnableClientState(GL_VERTEX_ARRAY)
+
+        glLineWidth(1)
+        glPointSize(2)
+
+        # Points.
+        glColor4f(1,1,1,.6)
+        glVertexPointer(3, GL_FLOAT, 6*4, ctypes.c_void_p(0))
+        glDrawArrays(GL_POINTS, 0, self.n)
+
+        # Lines.
+        glColor4f(1,1,1,.4)
+        glVertexPointer(3, GL_FLOAT, 3*4, ctypes.c_void_p(0))
+        glDrawArrays(GL_LINES, 0, self.n*2)
+
+        glDisableClientState(GL_VERTEX_ARRAY)
+        glBindBuffer(GL_ARRAY_BUFFER, 0)
 
 class GridRenderer(SurfaceRenderer):
     def __init__(self, wh):
@@ -319,6 +348,8 @@ class GridRenderer(SurfaceRenderer):
 
     def set_mesh(self, id, **kw):
         self.meshes[id] = MeshEntity(**kw)
+    def set_points_and_normals(self, id, **kw):
+        self.meshes[id] = PtsAndNormalsEntity(**kw)
 
     def set_octree(self, octree):
         # self.octree_verts = []

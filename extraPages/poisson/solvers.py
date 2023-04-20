@@ -109,6 +109,23 @@ def get_problem_1():
 
     return A, b, x
 
+def get_least_squares_problem_2():
+    # A random but spectrum-controlled symmetric-PD matrix.
+    torch.manual_seed(0)
+    N = 4
+    A = torch.randn(N,N)
+    A = (A@A.mT)
+    A = gram_schmidt(A)
+    evalues = torch.linspace(.1, 5, N) ** 2
+    A = A @ evalues.diag() @ A.mT
+    b = torch.randn(N)
+
+    A = A[:,:N//2]
+
+    x = torch.linalg.solve(A.mT@A,A.mT@b)
+
+    return A, b, x
+
 
 def run_generic(A, b, x, T, x0, solve_func, **kw):
     def getError(xi): return (x-xi).norm()
@@ -208,12 +225,49 @@ def solve_cg(A, b, x0, T, preconditioned=False, debug=False, debugConj=False):
     if debugConj:
         ds = torch.stack(ds[:8],0)
         rs = torch.stack(rs[:8],0)
-        # print(f' - first 8 ds A-conjugacy:\n{ds@A@ds.mT}') # The point is to have zeros on the off-diagonals here
-        # print(f' - first 8 ds A-conjugacy:\n{(A@ds.mT)@ds}') # The point is to have zeros on the off-diagonals here
         print(f' - first 8 ds A-conjugacy:\n{ds@(A@ds.mT)}') # The point is to have zeros on the off-diagonals here
-        # print(f' - rs A-conjugacy:\n{rs@A@rs.mT}')
     return x
 
+def solve_cg_AtA(A, b, x0, T, preconditioned=False, debug=False):
+    x = x0
+    r = A.mT @ b - A.mT @ (A @ x)
+
+    # Minv = 1./get_diag(A.mT@A) if preconditioned else None
+    # Minv = 1./get_diag(A) if preconditioned else None
+    # FIXME: Test this: instead of forming big/less-sparse A'A, approximate diag(A'A) ~=~ A_ii^2.
+    #        But is this too inaccurate in some cases?
+    Minv = 1./(get_diag(A)**2) if preconditioned else None
+
+    d = r if not preconditioned else Minv * r
+
+    T = min(T, len(b)*2)
+
+    if debug: print(' - residual norm at start', (A.mT@b-A.mT@(A@x)).norm())
+    st = time.time()
+
+    # FIXME: Shewchuk avoids r1 by storing the inner product for the next iter (he calls delta_new and delta_old)
+    for i in range(T):
+        # WARNING: Interesting the order of the mult changes accuracy of CG/PCG (and more difference when sparse)
+        # a = ((r@r) if not preconditioned else (r@(Minv*r))) / (d@A.mT@(A@d))
+        a = ((r@r) if not preconditioned else (r@(Minv*r))) / (d@(A.mT@(A@d)))
+
+        x = x + a * d
+        r1 = r - a * (A.mT@(A@d))
+        if not preconditioned:
+            beta = (r1 @ r1) / (r@r)
+            d = r1 + beta * d
+        else:
+            s = Minv*r1
+            beta = (r1 @ s) / (r@(Minv*r))
+            d = s + beta * d
+
+        r = r1
+        if r.norm() < 1e-7: break
+
+    if debug: print(' - residual norm at   end', (A.mT@b-A.mT@(A@x)).norm())
+    if debug: print(' - {} steps in {:.2f}ms'.format(i, (time.time() - st)*1000))
+
+    return x
 
 
 
@@ -240,3 +294,14 @@ if __name__ == '__main__':
     print('\n**********************************')
     print(' Running PCG')
     run_generic(A, b, x, T, x0, solve_func=solve_cg, preconditioned=True, debug=True, debugConj=True)
+
+    print('\n')
+    print('\n')
+
+    A, b, x = get_least_squares_problem_2()
+    M,N = A.size()
+    x0 = torch.full((N,), -2.)
+
+    print('\n**********************************')
+    print(' Running PCG LeastSquares')
+    run_generic(A, b, x, T, x0, solve_func=solve_cg_AtA, preconditioned=True, debug=True)

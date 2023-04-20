@@ -2,7 +2,7 @@ import torch, torch.nn.functional as F
 import numpy as np, sys
 torch.set_printoptions(linewidth=150, edgeitems=10)
 
-from solvers import solve_cg
+from solvers import solve_cg, solve_cg_AtA
 from polygonalization.run_marching_algo import run_marching, show_marching_viz
 
 '''
@@ -78,7 +78,6 @@ def viz_conv_of_lap():
             cv2.imshow(name, arr)
     # cv2.waitKey(0)
     # exit()
-viz_conv_of_lap()
 
 # Vizualize the box filter (iterated three times) in 2D.
 # The 3d section would suggest that Khazdan 2006 is talking about the regular (non-manhattan) box blur.
@@ -315,18 +314,31 @@ if 0:
     print(la, la.shape)
     exit()
 
-def forward_into_grid(x, D, pad):
+def forward_into_grid(x, D, pad, relativePad=.05):
     assert x.ndim == 2 and x.size(1) == 3
 
     size = (1<<D)
-    scale = ((1<<D) - 2*pad) / (x.max() - x.min())
+
+    # FIXME: Probably remove relative pad.
+    extent = (x.max() - x.min())
+    relativePadAdd = int((1<<D) * relativePad)
+    pad0 = pad
+    pad = pad0 + relativePadAdd
+
+    scale = ((1<<D) - 2*pad) / extent
     off = -x.min(0).values + pad/scale
+
+    print(f' - From extent {extent}, pad {pad0}, relative pad {relativePad} -> {relativePadAdd}, totalPad {pad}')
+    print(f' - Have D {D} -> ncell {(1<<D)}')
+    print(f' - Have offset {off}')
+    print(f' - Have scale  {scale}')
 
     x = x + off.view(1,3)
     x.mul_(scale)
 
-    print(x.min())
-    print(x.max(), 1<<D)
+    print(f' - With transformed points spanning:')
+    print(f' -        {x.min(0).values}')
+    print(f' -     -> {x.max(0).values}')
 
     assert (x>=0).all()
     assert (x<=size).all()
@@ -337,9 +349,153 @@ def backward_from_grid(x, off, scale):
     x.add_(off)
     return x
 
+def iter_stencil(st):
+    return zip(st.indices().t() - st.size()[0]//2, st.values())
+def iter_stencil_nonzero(st):
+    return ((D,W) for (D,W) in zip(st.indices().t() - st.size()[0]//2, st.values()) if abs(W)>1e-8)
+
+def form_solve_system(stencil, coo, v, SO, dev):
+
+    convLapStencil = get_convolved_lap(stencil)
+    convLapStencilSt = convLapStencil.to_sparse().coalesce()
+    Lc,Lv = torch.empty((2,0),dtype=torch.long,device=dev), torch.empty((0,),dtype=torch.float32,device=dev)
+    print(' - convLapStencil nnz', convLapStencilSt._nnz())
+    # Add one to value so that we can detect invalid matches later (as 0) and mask them out.
+    # indexLookupO = torch.sparse_coo_tensor(st1.indices(), 1+torch.arange(st1._nnz(),device=dev), size=V.size()[:3]).coalesce()
+    indexLookupO = torch.sparse_coo_tensor(coo, 1+torch.arange(coo.size(1),device=dev), size=(SO,)*3).coalesce()
+
+    for D,W in iter_stencil_nonzero(convLapStencilSt):
+        tmpc = coo - D.view(3,1)
+        tmpv = torch.ones_like(tmpc[0])
+
+        if 1:
+            if 0:
+                # Ensure we have *exact* same layout by adding zeros with original coordinates.
+                # Required because without this we may have < |O| entries.
+                tmpc = torch.cat((tmpc, coo), 1)
+                tmpv = torch.cat((tmpv, torch.zeros_like(coo[0])), 0)
+                tmp = torch.sparse_coo_tensor(tmpc,tmpv, size=indexLookupO.size()).coalesce()
+                tmp_v = (tmp * indexLookupO).coalesce()
+
+            # This appears to do it, tbh I don't understand why.
+            if 1:
+                tmp = torch.sparse_coo_tensor(tmpc,tmpv, size=indexLookupO.size()).coalesce()
+                tmp_v = (tmp * indexLookupO).coalesce()
+                tmp_v = (tmp_v + torch.sparse_coo_tensor(tmpc, torch.zeros_like(coo[0]), size=indexLookupO.size())).coalesce()
+
+            # if tmp_v.values().sum() != 0: print(f' - tmp_v:\n {tmp_v} at D={D} with W={W}')
+
+            assert tmp_v._nnz() == SO # See above warning.
+            row_ids = torch.arange(SO, device=dev)
+            col_ids = tmp_v.values()
+            mask = col_ids > 0
+            row_ids = row_ids[mask]
+            col_ids = col_ids[mask] - 1
+        else:
+            tmp1 = torch.sparse_coo_tensor(tmpc,tmpv, size=indexLookupO.size()).coalesce()
+            tmp2 = torch.sparse_coo_tensor(tmpc,torch.arange(len(tmpc[0])), size=indexLookupO.size()).coalesce()
+
+        if 0 and len(row_ids) > 0 and not (D==0).all():
+            print(f' - Adding off-diagonal pairs (W={W.item()}):')
+            print('        ', row_ids)
+            print('        ', col_ids)
+
+        Lc = torch.cat((Lc, torch.stack((row_ids, col_ids), 0)), 1)
+        Lv = torch.cat((Lv, W.repeat(len(col_ids))), 0)
+
+    L = torch.sparse_coo_tensor(Lc, Lv, size=(SO,SO)).coalesce()
+    print(' - L:\n', L)
+
+    # -----------------------------------------------------------------------------------------------------------
+    # Solve
+    #
+
+    # Note: just one level for now..
+    print(' - L shape',L.shape, 'nnz', L._nnz())
+    x0 = torch.zeros(SO, device=dev)
+
+    # x1 = solve_cg(L, v, x0, T=3, preconditioned=True, debug=True)
+    x1 = solve_cg(L, v, x0, T=1000, preconditioned=True, debug=True)
+    # print(x1)
+
+    return x1
+
+
+# Avoid forming the product J'J, instead just keep J and apply J'(Jx) in the conjugate gradient steps.
+# In case of the 3d 5x5 stencil, this is a memory savings of about 6x.
+# The laplacian stencil itself has a support of 125 cells.
+# The laplacian stencil convolved with itself has a support of 729 cells.
+def form_solve_system_AtA(stencil, coo, v, SO, dev):
+
+    lapStencil = get_laplacian(stencil)
+    lapStencilSt = lapStencil.to_sparse().coalesce()
+
+    Lc,Lv = torch.empty((2,0),dtype=torch.long,device=dev), torch.empty((0,),dtype=torch.float32,device=dev)
+    print(' - lapStencil nnz', lapStencilSt._nnz())
+    # Add one to value so that we can detect invalid matches later (as 0) and mask them out.
+    # indexLookupO = torch.sparse_coo_tensor(st1.indices(), 1+torch.arange(st1._nnz(),device=dev), size=V.size()[:3]).coalesce()
+    indexLookupO = torch.sparse_coo_tensor(coo, 1+torch.arange(coo.size(1),device=dev), size=(SO,)*3).coalesce()
+
+    for D,W in iter_stencil_nonzero(lapStencilSt):
+        tmpc = coo - D.view(3,1)
+        tmpv = torch.ones_like(tmpc[0])
+
+        if 1:
+            if 0:
+                # Ensure we have *exact* same layout by adding zeros with original coordinates.
+                # Required because without this we may have < |O| entries.
+                tmpc = torch.cat((tmpc, coo), 1)
+                tmpv = torch.cat((tmpv, torch.zeros_like(coo[0])), 0)
+                tmp = torch.sparse_coo_tensor(tmpc,tmpv, size=indexLookupO.size()).coalesce()
+                tmp_v = (tmp * indexLookupO).coalesce()
+
+            # This appears to do it, tbh I don't understand why.
+            if 1:
+                tmp = torch.sparse_coo_tensor(tmpc,tmpv, size=indexLookupO.size()).coalesce()
+                tmp_v = (tmp * indexLookupO).coalesce()
+                tmp_v = (tmp_v + torch.sparse_coo_tensor(tmpc, torch.zeros_like(coo[0]), size=indexLookupO.size())).coalesce()
+
+            # if tmp_v.values().sum() != 0: print(f' - tmp_v:\n {tmp_v} at D={D} with W={W}')
+
+            assert tmp_v._nnz() == SO # See above warning.
+            row_ids = torch.arange(SO, device=dev)
+            col_ids = tmp_v.values()
+            mask = col_ids > 0
+            row_ids = row_ids[mask]
+            col_ids = col_ids[mask] - 1
+        else:
+            tmp1 = torch.sparse_coo_tensor(tmpc,tmpv, size=indexLookupO.size()).coalesce()
+            tmp2 = torch.sparse_coo_tensor(tmpc,torch.arange(len(tmpc[0])), size=indexLookupO.size()).coalesce()
+
+        if 0 and len(row_ids) > 0 and not (D==0).all():
+            print(f' - Adding off-diagonal pairs (W={W.item()}):')
+            print('        ', row_ids)
+            print('        ', col_ids)
+
+        Lc = torch.cat((Lc, torch.stack((row_ids, col_ids), 0)), 1)
+        Lv = torch.cat((Lv, W.repeat(len(col_ids))), 0)
+
+    L = torch.sparse_coo_tensor(Lc, Lv, size=(SO,SO)).coalesce()
+    print(' - L:\n', L)
+
+    # -----------------------------------------------------------------------------------------------------------
+    # Solve
+    #
+
+    # Note: just one level for now..
+
+    print(' - L shape',L.shape, 'nnz', L._nnz())
+    x0 = torch.zeros(SO, device=dev)
+
+    # x1 = solve_cg(L, v, x0, T=3, preconditioned=True, debug=True)
+    x1 = solve_cg_AtA(L, v, x0, T=1000, preconditioned=True, debug=True)
+
+    # print(x1)
+
+    return x1
 
 # Sparse 3d convolution.
-def form_system(pts0, nrmls0, D=5):
+def run_psr(pts0, nrmls0, D=7):
     dev = pts0.device
 
     # print(f' - stencil {stencil.shape}')
@@ -355,9 +511,6 @@ def form_system(pts0, nrmls0, D=5):
 
     stencil = get_stencil()
     stencil_st = stencil.to_sparse().coalesce() # A convenient way to iterate over indices/values
-    iter_stencil = lambda st: zip(st.indices().t() - st.size()[0]//2, st.values())
-    iter_stencil_nonzero = lambda st: ((D,W) for (D,W) in zip(st.indices().t() - st.size()[0]//2, st.values()) if abs(W)>1e-8)
-
 
     # -----------------------------------------------------------------------------------------------------------
     # Compute vector field V
@@ -471,6 +624,9 @@ def form_system(pts0, nrmls0, D=5):
     #              i) Add columns/rows of final matrix each iter.
     #             ii) The matrix is exactly |O| rows and has |V| columns, but only upto 125 entries per row.
 
+    # NOTE: There may be a better way to do this using the sparse matrix approach used below (rather than a sparse tensor used here).
+    # TODO: Implement above using sparse matrix technique
+
     SV = V._nnz()
     SO = st1._nnz()
 
@@ -532,75 +688,14 @@ def form_system(pts0, nrmls0, D=5):
     #        The J matrix is the grad_x+grad_y+grad_z.
     #        The sizes of J and J'J are the same, but J has much less non-zeros!
 
-
-    convLapStencil = get_convolved_lap(stencil)
-    convLapStencilSt = convLapStencil.to_sparse().coalesce()
-    Lc,Lv = torch.empty((2,0),dtype=torch.long,device=dev), torch.empty((0,),dtype=torch.float32,device=dev)
-    print(' - coo2', coo2)
-    print(' - SO', SO)
-    print(' - convLapStencil nnz', convLapStencilSt._nnz())
-    # Add one to value so that we can detect invalid matches later (as 0) and mask them out.
-    indexLookupO = torch.sparse_coo_tensor(st1.indices(), 1+torch.arange(st1._nnz(),device=dev), size=V.size()[:3]).coalesce()
-    for D,W in iter_stencil_nonzero(convLapStencilSt):
-        tmpc = coo2 - D.view(3,1)
-        tmpv = torch.ones_like(tmpc[0])
-
-        if 1:
-            if 0:
-                # Ensure we have *exact* same layout by adding zeros with original coordinates.
-                # Required because without this we may have < |O| entries.
-                tmpc = torch.cat((tmpc, coo2), 1)
-                tmpv = torch.cat((tmpv, torch.zeros_like(coo2[0])), 0)
-                tmp = torch.sparse_coo_tensor(tmpc,tmpv, size=indexLookupO.size()).coalesce()
-                tmp_v = (tmp * indexLookupO).coalesce()
-
-            # This appears to do it, tbh I don't understand why.
-            if 1:
-                tmp = torch.sparse_coo_tensor(tmpc,tmpv, size=indexLookupO.size()).coalesce()
-                tmp_v = (tmp * indexLookupO).coalesce()
-                tmp_v = (tmp_v + torch.sparse_coo_tensor(tmpc, torch.zeros_like(coo2[0]), size=indexLookupO.size())).coalesce()
-
-            # if tmp_v.values().sum() != 0: print(f' - tmp_v:\n {tmp_v} at D={D} with W={W}')
-
-            assert tmp_v._nnz() == SO # See above warning.
-            row_ids = torch.arange(SO, device=dev)
-            col_ids = tmp_v.values()
-            mask = col_ids > 0
-            row_ids = row_ids[mask]
-            col_ids = col_ids[mask] - 1
-        else:
-            tmp1 = torch.sparse_coo_tensor(tmpc,tmpv, size=indexLookupO.size()).coalesce()
-            tmp2 = torch.sparse_coo_tensor(tmpc,torch.arange(len(tmpc[0])), size=indexLookupO.size()).coalesce()
-
-        if 0 and len(row_ids) > 0 and not (D==0).all():
-            print(f' - Adding off-diagonal pairs (W={W.item()}):')
-            print('        ', row_ids)
-            print('        ', col_ids)
-
-        Lc = torch.cat((Lc, torch.stack((row_ids, col_ids), 0)), 1)
-        Lv = torch.cat((Lv, W.repeat(len(col_ids))), 0)
-
-    L = torch.sparse_coo_tensor(Lc, Lv, size=(SO,SO)).coalesce()
-    print(' - L:\n', L)
-
-    # -----------------------------------------------------------------------------------------------------------
-    # Solve
-    #
-
-    # Note: just one level for now..
-
-    print(L.shape)
-    print(v.shape)
-    x0 = torch.zeros(SO, device=dev)
-
-    # x1 = solve_cg(L, v, x0, T=3, preconditioned=True, debug=True)
-    x1 = solve_cg(L, v, x0, T=1000, preconditioned=True, debug=True)
-
-    # print(x1)
+    # The second call is more sparse, but slower on small inputs.
+    # It requires 2x sparse matrix multiplies, but about 10x less memory.
+    # x1 = form_solve_system(stencil, coo2, v, SO, dev)
+    x1 = form_solve_system_AtA(stencil, coo2, v, SO, dev)
 
 
     # -----------------------------------------------------------------------------------------------------------
-    # Polygonizalation
+    # Polygonalization
     #
 
     Ic,Iv = torch.empty((3,0),dtype=torch.long,device=dev), torch.empty((0),dtype=torch.float32,device=dev)
@@ -611,9 +706,10 @@ def form_system(pts0, nrmls0, D=5):
     I = torch.sparse_coo_tensor(Ic,Iv, size=(size,size,size)).coalesce()
     print(f' - I sizes (uncoalesced {Ic.size(1)}) (final nnz {I._nnz()}={I.indices().size(1)})')
 
-    positions, inds = run_marching(I, isolevel=.13)
-    print(positions.device, inds.device)
-    show_marching_viz(positions, inds)
+    positions, inds, marchedOffScale = run_marching(I, isolevel=.01)
+    pts1 = (pts0 + off) * scale
+    pts1 = (pts1 + marchedOffScale[0]) * marchedOffScale[1]
+    show_marching_viz(positions, inds, pts=pts1,nrls=nrmls0)
 
 
 
@@ -627,11 +723,13 @@ pts   = torch.randn(512*16, 3).cuda()
 # pts   = torch.randn(int(1e6), 3).cuda()
 # pts   = torch.randn(int(1e6), 3).cuda()
 # pts   = torch.randn(1, 3).cuda()
-pts[0] = torch.cuda.FloatTensor((.5,0,0))
+# pts[0] = torch.cuda.FloatTensor((.5,0,0))
 pts   = pts / pts.norm(dim=1,keepdim=True)
+pts   = pts * torch.rand(pts.size(0),1,device=pts.device).sqrt() # Random inside sphere
 pts = pts * .5
-nrmls = pts
+nrmls   = pts / pts.norm(dim=1,keepdim=True)
 print(' - pts  :\n', pts)
 print(' - nrmls:\n', nrmls)
-form_system(pts, nrmls)
+run_psr(pts, nrmls)
+# viz_conv_of_lap()
 # viz_box()
