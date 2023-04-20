@@ -31,6 +31,8 @@ def run_marching(isovalue_st0, isolevel=1e-6, method='cubes'):
         marched = marching_cubes(positions,vals, iso=isolevel, gridScale=gridScale)
     elif method == 'tetra':
         marched = marching_tetra(positions,vals, iso=isolevel, gridScale=gridScale)
+    elif method == 'surfaceNets':
+        marched = marching_surface_net_multires(positions,vals, iso=isolevel, gridScale=gridScale)
     else:
         assert False
 
@@ -138,3 +140,4 @@ def test_marching(method='cubes'):
 if __name__ == '__main__':
     test_marching('cubes')
     test_marching('tetra')
+    test_marching('surfaceNets')

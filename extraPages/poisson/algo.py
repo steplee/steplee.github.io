@@ -1,5 +1,5 @@
 import torch, torch.nn.functional as F
-import numpy as np, sys
+import numpy as np, sys, time
 torch.set_printoptions(linewidth=150, edgeitems=10)
 
 from solvers import solve_cg, solve_cg_AtA
@@ -355,6 +355,7 @@ def iter_stencil_nonzero(st):
     return ((D,W) for (D,W) in zip(st.indices().t() - st.size()[0]//2, st.values()) if abs(W)>1e-8)
 
 def form_solve_system(stencil, coo, v, SO, dev):
+    st = time.time()
 
     convLapStencil = get_convolved_lap(stencil)
     convLapStencilSt = convLapStencil.to_sparse().coalesce()
@@ -418,6 +419,7 @@ def form_solve_system(stencil, coo, v, SO, dev):
     x1 = solve_cg(L, v, x0, T=1000, preconditioned=True, debug=True)
     # print(x1)
 
+    print(f' - form_solve_system took {time.time()-st:.2f}')
     return x1
 
 
@@ -426,6 +428,7 @@ def form_solve_system(stencil, coo, v, SO, dev):
 # The laplacian stencil itself has a support of 125 cells.
 # The laplacian stencil convolved with itself has a support of 729 cells.
 def form_solve_system_AtA(stencil, coo, v, SO, dev):
+    st = time.time()
 
     lapStencil = get_laplacian(stencil)
     lapStencilSt = lapStencil.to_sparse().coalesce()
@@ -490,12 +493,11 @@ def form_solve_system_AtA(stencil, coo, v, SO, dev):
     # x1 = solve_cg(L, v, x0, T=3, preconditioned=True, debug=True)
     x1 = solve_cg_AtA(L, v, x0, T=1000, preconditioned=True, debug=True)
 
-    # print(x1)
-
+    print(f' - form_solve_system_AtA took {time.time()-st:.2f}')
     return x1
 
 # Sparse 3d convolution.
-def run_psr(pts0, nrmls0, D=7):
+def run_psr(pts0, nrmls0, D=6):
     dev = pts0.device
 
     # print(f' - stencil {stencil.shape}')
@@ -690,7 +692,7 @@ def run_psr(pts0, nrmls0, D=7):
 
     # The second call is more sparse, but slower on small inputs.
     # It requires 2x sparse matrix multiplies, but about 10x less memory.
-    # x1 = form_solve_system(stencil, coo2, v, SO, dev)
+    x1 = form_solve_system(stencil, coo2, v, SO, dev)
     x1 = form_solve_system_AtA(stencil, coo2, v, SO, dev)
 
 
@@ -706,7 +708,7 @@ def run_psr(pts0, nrmls0, D=7):
     I = torch.sparse_coo_tensor(Ic,Iv, size=(size,size,size)).coalesce()
     print(f' - I sizes (uncoalesced {Ic.size(1)}) (final nnz {I._nnz()}={I.indices().size(1)})')
 
-    positions, inds, marchedOffScale = run_marching(I, isolevel=.01)
+    positions, inds, marchedOffScale = run_marching(I, isolevel=.05)
     pts1 = (pts0 + off) * scale
     pts1 = (pts1 + marchedOffScale[0]) * marchedOffScale[1]
     show_marching_viz(positions, inds, pts=pts1,nrls=nrmls0)
@@ -717,17 +719,25 @@ def run_psr(pts0, nrmls0, D=7):
 
 
 torch.manual_seed(0)
-# pts   = torch.randn(512, 3).cuda()
-pts   = torch.randn(512*16, 3).cuda()
-# pts   = torch.randn(512*2048, 3).cuda()
-# pts   = torch.randn(int(1e6), 3).cuda()
-# pts   = torch.randn(int(1e6), 3).cuda()
-# pts   = torch.randn(1, 3).cuda()
-# pts[0] = torch.cuda.FloatTensor((.5,0,0))
-pts   = pts / pts.norm(dim=1,keepdim=True)
-pts   = pts * torch.rand(pts.size(0),1,device=pts.device).sqrt() # Random inside sphere
-pts = pts * .5
-nrmls   = pts / pts.norm(dim=1,keepdim=True)
+if 0:
+    pts   = torch.randn(512*16, 3).cuda()
+    # pts   = pts / pts.norm(dim=1,keepdim=True)
+    pts   = pts / pts.abs().sum(dim=1,keepdim=True)
+    pts   = pts * torch.rand(pts.size(0),1,device=pts.device).sqrt() # Random inside sphere
+    pts = pts * .5
+    nrmls   = pts / pts.norm(dim=1,keepdim=True)
+else:
+    ps     = torch.randn(512*2, 3).cuda()
+    ps     = ps / ps.abs().sum(dim=1,keepdim=True)
+    ps     = ps * torch.rand(ps.size(0),1,device=ps.device).sqrt() # Random inside sphere
+    ps     = ps * .25
+    nrmls0 = ps / ps.norm(dim=1,keepdim=True)
+    ps0    = ps - .2
+
+    ps1    = ps + .2
+    nrmls1 = ps / ps.norm(dim=1,keepdim=True)
+    pts    = torch.cat((ps0, ps1), 0)
+    nrmls  = torch.cat((nrmls0, nrmls1), 0)
 print(' - pts  :\n', pts)
 print(' - nrmls:\n', nrmls)
 run_psr(pts, nrmls)
