@@ -2,10 +2,15 @@ import torch
 from renderBase import *
 from OpenGL.GL.shaders import compileProgram, compileShader
 
+_shader_cache = {}
 def compile_shader(vsrc, fsrc):
-    vs = compileShader(vsrc, GL_VERTEX_SHADER)
-    fs = compileShader(fsrc, GL_FRAGMENT_SHADER)
-    return compileProgram(vs,fs)
+    global _shader_cache
+    key = vsrc+fsrc
+    if not key in _shader_cache:
+        vs = compileShader(vsrc, GL_VERTEX_SHADER)
+        fs = compileShader(fsrc, GL_FRAGMENT_SHADER)
+        _shader_cache[key] = compileProgram(vs,fs)
+    return _shader_cache[key]
 
 #
 # Allows batch rendering of cubes of same size. Can be used to render an octree in just a few draw calls.
@@ -88,28 +93,41 @@ class GridEntity():
     }
     '''
 
-    def __init__(self):
+    def __init__(self, coords, alphas, lvl):
+        self.coordAlphasVbo = glGenBuffers(1)
         self.prog = compile_shader(GridEntity.vsrc, GridEntity.fsrc)
 
-    def render(self, coordAlphas, size, alpha, mvp, coordAlphasVbo=None,N=None):
-        if N is None: N = len(coordAlphas)
+        # Convert integral coords to positions
+        L = 1 << lvl
+        size = .95 / L
+        coords = coords.t().float().div(float(L)).cpu().numpy() + (.5/L)
+        alphas = alphas if alphas is not None else np.ones_like(coords[:,:1])
+        verts = np.hstack((coords, alphas)).astype(np.float32)
+        verts = np.copy(verts,'C')
+        glBindBuffer(GL_ARRAY_BUFFER, self.coordAlphasVbo)
+        glBufferData(GL_ARRAY_BUFFER, verts.size*verts.itemsize, verts, GL_STATIC_DRAW)
+        glBindBuffer(GL_ARRAY_BUFFER, 0)
+
+        self.size = size
+        self.n = len(verts)
+
+    def render(self, alpha, mvp):
         glUseProgram(self.prog)
         glUniformMatrix4fv(0, 1, True, mvp)
-        glUniform1f(1, size)
+        glUniform1f(1, self.size)
         glUniform4f(2, 1,1,1,alpha)
         glEnableVertexAttribArray(0)
 
-        if coordAlphasVbo is None:
-            glVertexAttribPointer(0, 4, GL_FLOAT, False, 0, coordAlphas)
-        else:
-            glBindBuffer(GL_ARRAY_BUFFER, coordAlphasVbo)
-            glVertexAttribPointer(0, 4, GL_FLOAT, False, 0, ctypes.c_void_p(0))
+        glBindBuffer(GL_ARRAY_BUFFER, self.coordAlphasVbo)
+        glVertexAttribPointer(0, 4, GL_FLOAT, False, 0, ctypes.c_void_p(0))
         glVertexAttribDivisor(0, 1)
 
-        glDrawArraysInstanced(GL_LINES, 0, 24, N)
+        glDrawArraysInstanced(GL_LINES, 0, 24, self.n)
         glDisableVertexAttribArray(0)
         glUseProgram(0)
         glBindBuffer(GL_ARRAY_BUFFER, 0)
+
+
 
 # NOTE: Only support variation with pos/col/nrl now (no uvs, no textures)
 class MeshEntity():
@@ -310,13 +328,12 @@ class GridRenderer(SurfaceRenderer):
     def __init__(self, wh):
         super().__init__(wh)
 
-        self.octree_verts = []
-        self.octree_values = []
 
     def do_init(self):
-        self.gridEnt = GridEntity()
-        self.octree_vbos = glGenBuffers(20)
-        self.octree_sizes = [0,]*20
+        # self.gridEnt = GridEntity()
+        # self.octree_vbos = glGenBuffers(20)
+        # self.octree_sizes = [0,]*20
+        self.octrees = [None,]*20
         self.curLvl = 0
         self.meshes = {}
 
@@ -333,13 +350,6 @@ class GridRenderer(SurfaceRenderer):
         V = np.copy(glGetFloatv(GL_MODELVIEW_MATRIX).T,'C')
         P = np.copy(glGetFloatv(GL_PROJECTION_MATRIX).T,'C')
         mvp = P @ V
-        '''
-        coordAlphas = np.array((
-            .5,.5,.1, 1.,
-            .0,.0,-.5, .4,
-            ),dtype=np.float32).reshape(-1,4)
-        self.gridEnt.render(coordAlphas, .2, 1., mvp)
-        '''
 
         self.render_octree(mvp)
 
@@ -352,49 +362,28 @@ class GridRenderer(SurfaceRenderer):
         self.meshes[id] = PtsAndNormalsEntity(**kw)
 
     def set_octree(self, octree):
-        # self.octree_verts = []
-        self.octree_values = []
         for lvl in range(octree.numLvls()):
             st = octree.getLvl(lvl)
             coords,vals = st.indices(), st.values()
-            self.octree_values.append(v.cpu().numpy())
-
-            # Do verts.
-            L = 1 << lvl
-            coords = coords.t().float().div(float(L)).cpu().numpy() + (.5/L)
-            if lvl == 8: print(verts)
-            verts = np.hstack((coords, np.ones_like(coords[:,:1]))).astype(np.float32)
-            verts = np.copy(verts,'C')
-            self.octree_sizes[lvl] = len(verts)
-            glBindBuffer(GL_ARRAY_BUFFER, self.octree_vbos[lvl])
-            glBufferData(GL_ARRAY_BUFFER, verts.size*verts.itemsize, verts, GL_STATIC_DRAW)
-            glBindBuffer(GL_ARRAY_BUFFER, 0)
+            self.octrees[lvl] = GridEntity(coords, alphas=None, lvl=lvl)
 
     def render_octree(self, mvp):
-        numLvls = len(self.octree_values)
-        if numLvls == 0: return
-
         glDisable(GL_DEPTH_TEST)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE)
 
-        minLvl,maxLvl = 0, numLvls
+        minLvl,maxLvl = 0, 20
         lvl = self.curLvl
         minLvl,maxLvl = lvl, lvl+1
         for lvl in range(minLvl,maxLvl):
-            # verts,vals = self.octree_verts[lvl], self.octree_values[lvl]
-            vbo,vals = self.octree_vbos[lvl], self.octree_values[lvl]
-            N = self.octree_sizes[lvl]
-            L = (1 << lvl)
-            W = .95 / L
-            # self.gridEnt.render(verts, W, 1., mvp)
-            self.gridEnt.render(None, W, .4, mvp, coordAlphasVbo=vbo,N=N)
+            if self.octrees[lvl] is not None:
+                self.octrees[lvl].render(.5,mvp)
 
     def keyboard(self, key, x, y):
         super().keyboard(key,x,y)
         self.curLvl
         key = (key).decode()
         if key == 'k': self.curLvl = max(self.curLvl-1,0)
-        if key == 'l': self.curLvl = min(self.curLvl+1,len(self.octree_values)-1)
+        if key == 'l': self.curLvl = min(self.curLvl+1,20-1)
 
 
 
