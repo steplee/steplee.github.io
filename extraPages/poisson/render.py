@@ -377,6 +377,7 @@ class GridRenderer(SurfaceRenderer):
         for lvl in range(minLvl,maxLvl):
             if self.octrees[lvl] is not None:
                 self.octrees[lvl].render(.5,mvp)
+        glEnable(GL_DEPTH_TEST)
 
     def keyboard(self, key, x, y):
         super().keyboard(key,x,y)

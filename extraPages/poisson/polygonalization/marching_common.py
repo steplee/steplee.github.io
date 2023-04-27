@@ -106,30 +106,40 @@ def compute_normal_batch(p, normalize=False):
 '''
 From a flat tensor [N,3] of positions, and a tensor of triangle inds [N,3],
 compute [N,3] normals averaged amongst face normals.
+
+NOTE: It is assumed that every position is used by at least one triangle,
+      unless `safe`=True
+
 '''
-def compute_normals(positions, triInds, normalizeByFaceSize=False):
+def compute_normals(positions, triInds, normalizeByFaceSize=False, safe=True):
     triInds = triInds.view(-1,3).long()
     NV = positions.size(0)
     NT = triInds.size(0)
 
     nrmls = torch.zeros_like(positions)
 
-    # [NT, 3, 3]
-    triPts = positions[triInds]
-    # [NT, 3]
-    # NOTE: We *DO NOT* normalize the raw cross products.
-    #       This makes weight to final normal proportional to face size.
-    crossed = compute_normal_batch(triPts, normalize=normalizeByFaceSize)
+    if 1:
+        # [NT, 3, 3]
+        triPts = positions[triInds]
+        # [NT, 3]
+        # NOTE: We *DO NOT* normalize the raw cross products.
+        #       This makes weight to final normal proportional to face size.
+        crossed = compute_normal_batch(triPts, normalize=normalizeByFaceSize)
 
-    # We have to go from [NT,3] back to [NV,3] entries.
-    # We'll use a sparse tensor again.
-    coo = triInds.view(1,-1)
-    val = crossed.view(NT, 1, 3).repeat(1,3,1).view(NT*3,3)
+        # We have to go from [NT,3] back to [NV,3] entries.
+        # We'll use a sparse tensor again.
+        coo = triInds.view(1,-1)
+        val = crossed.view(NT, 1, 3).repeat(1,3,1).view(NT*3,3)
 
-    # We are gauranteed to have correct order, so just get values
-    nrls = torch.sparse_coo_tensor(coo, val).coalesce().values()
-    nrls = nrls.div_(nrls.norm(dim=1,keepdim=True))
-    return nrls
+        if safe:
+            coo = torch.cat((coo, torch.arange(NV,device=triInds.device).view(1,-1)), 1)
+            val = torch.cat((val, torch.zeros((NV,3), device=triInds.device)), 0)
+
+
+        # We are gauranteed to have correct order, so just get values
+        nrls = torch.sparse_coo_tensor(coo, val).coalesce().values()
+        nrls = nrls.div_(nrls.norm(dim=1,keepdim=True).clamp_(1e-9,999999))
+        return nrls
 
 '''
 Using vertex clustering on a certain sized grid, merge de-duplicate an input [N,3,3] tensor of triangles.

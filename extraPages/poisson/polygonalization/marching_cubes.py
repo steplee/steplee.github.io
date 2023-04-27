@@ -11,12 +11,7 @@ from .marching_common import *
 def marching_cubes(positions, vals, iso=0, gridScale=1):
     N,D = positions.size(0), positions.device
 
-
-    offset = positions.min(0).values
     positions = positions.float()
-    # positions.sub_(offset)
-    # positions.div_(scale)
-    # vals.div_(scale)
 
     N = positions.size(0)
     assert positions.size(1) == 3
@@ -85,7 +80,4 @@ def marching_cubes(positions, vals, iso=0, gridScale=1):
     print(f' - removed invalid tris: {N0} -> {N1}')
 
     out2 = out1
-    # out2 = out2.mul_(scale)
-    # out2 = out2.add_(offset.view(1,1,3))
-
     return out2
