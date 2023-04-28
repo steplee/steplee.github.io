@@ -57,22 +57,43 @@ def run_marching(isovalue_st0, isolevel=1e-6, method='cubes'):
         coords1 = isovalue_st0.indices()
         vals1 = isovalue_st0.values()
         st1 = torch.sparse_coo_tensor(coords1,vals1, size=(SZ,)*3).coalesce()
-        st = replicate_to_gridcells(st1)
+        # st = replicate_dual_neighbours(st1, negativeAndPositive=False)
+        st = replicate_dual_neighbours(st1, negativeAndPositive=True)
         coords,vals = st.indices().t(), st.values()
 
         gridScale = 1./SZ
         gridOff = -SZ//2
-        # positions = (st.indices() + gridOff).float().t() * gridScale
+        positions = (st.indices() + gridOff).float().t() * gridScale
         indices = st.indices()
         vals = st.values()
 
-        positions, triInds = surface_nets_one_res_0(indices, vals, gridScale=gridScale)
+        '''
+        # positions, triInds = surface_nets_one_res_0(indices, vals, gridScale=gridScale)
         # gridcellsSt = st
         # positions, triInds = surface_nets_one_res_1(gridcellsSt, gridScale=gridScale)
         inds = triInds
         positions = (positions.t().float() + gridOff) * gridScale
         print(' - positions & inds:', positions.shape, inds.shape)
+        return positions, inds, (gridOff,gridScale)
+        '''
 
+        marched = surface_nets_one_res_1(positions, vals, iso=isolevel,gridScale=gridScale)
+
+        # -------------------------------------------------------------------------------------
+        # Post Processing
+        # -------------------------------------------------------------------------------------
+
+        # NOTE: Control vertex reduction here.
+        #       Also controls flat vs smooth normals!
+        if 1:
+            triPositions = marched.to(torch.float32).reshape(-1,3,3)
+            positions, inds = merge_duplicate_verts(triPositions)
+            print(f' - merged duplicate verts: {triPositions.shape[0] * triPositions.shape[1]} -> {positions.shape[0]}')
+        else:
+            positions = marched.to(torch.float32).reshape(-1,3)
+            inds = torch.arange(positions.size(0)).to(torch.int32).view(-1,3)
+
+        print(' - positions & inds:',positions.shape, inds.shape)
         return positions, inds, (gridOff,gridScale)
 
 
@@ -90,6 +111,7 @@ def show_marching_viz(positions, triInds, pts=None, nrls=None):
 
     colors = torch.ones((positions.shape[0],4), dtype=torch.float32, device=positions.device)
     # colors[:,0:3] = positions[:,0:3].abs() * 4
+    # colors[:,0:3] = normals[:,0:3].abs() * 1
     colors[:,0:3] = normals[:,0:3].abs() * 1
 
     # -------------------------------------------------------------------------------------
@@ -118,12 +140,16 @@ def show_marching_viz(positions, triInds, pts=None, nrls=None):
         if r.q_pressed: break
 
 def test_marching(method='cubes'):
-    SZ = 32
+    SZ = 34
     coords = torch.cartesian_prod(*(torch.arange(SZ),)*3).cuda()
+    p = coords / SZ
     # vals = coords[:, 0] / coords[:,0].max()
     # vals = coords[:, 0].float() / coords[:,0].max() #- .5 # Wall
-    # vals = -(((coords - SZ/2).float()).norm(dim=1) - 10) # Sphere
-    vals = -(((coords - SZ/2).float()/SZ + ((15*3.141*coords[:,1:2])**2/SZ).cos()/SZ + (15*3.141*coords[:,0:1]/SZ).cos()/SZ).norm(dim=1) - .3) # Sphere
+    # vals = -(((p - .5).float()).norm(dim=1) - .3) # Sphere
+    vals = -(((p - .5) + .1*(p[:,0:1]*3).cos() + .1*(2*3*p[:,1:2]).pow(2).cos()).norm(dim=1) - .3) # Sphere
+    # vals = -(((coords - SZ/2).float()).norm(dim=1) - SZ*1/4) # Sphere
+    # vals = -(((coords - SZ/2).float()/SZ + ((15*3.141*coords[:,1:2])**2/SZ/SZ).cos()/SZ + (15*3.141*coords[:,0:1]/SZ).cos()/SZ).norm(dim=1) - .3) # Sphere
+    # vals = -(((coords - SZ/2).float()/SZ + (15*3.141*coords[:,0:1]/SZ).cos()/SZ).norm(dim=1) - .3) # Sphere
     # vals = (coords - (SZ+.5)/2).float().norm(dim=1) - .5
 
     st0 = torch.sparse_coo_tensor(coords.t(),vals, size=(SZ,)*3).coalesce()
@@ -140,6 +166,6 @@ def test_marching(method='cubes'):
     show_marching_viz(positions, inds, pts=pts1,nrls=nrmls0)
 
 if __name__ == '__main__':
-    # test_marching('cubes')
+    test_marching('cubes')
     # test_marching('tetra')
     test_marching('surfaceNets')

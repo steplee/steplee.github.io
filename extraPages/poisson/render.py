@@ -353,6 +353,7 @@ class GridRenderer(SurfaceRenderer):
 
         self.render_octree(mvp)
 
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         for k,mesh in self.meshes.items():
             mesh.render(P, V)
 

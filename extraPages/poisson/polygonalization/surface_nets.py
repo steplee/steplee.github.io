@@ -162,14 +162,74 @@ def surface_nets_one_res_0(indices, vals, iso=0, gridScale=1):
 def find_quads_convert_to_tris(indices, vals):
     pass
 
-def surface_nets_one_res_1(gridcells, iso=0, gridScale=1):
-    N,D = gridcells._nnz(), indices.device
-    size = gridcells.size()[:3]
-    assert gridcells.values().size() == (N,8)
+def surface_nets_one_res_1(positions, values, iso=0, gridScale=1):
+    N,D = positions.size(0), positions.device
+    # size = positions.size()[:3]
+    # assert positions.values().size() == (N,4)
 
-    # For all 8 neighbors, if the isovalue cross create a QUAD spanning those two.
+    # For all 6 face-neighbors, if the isovalue cross create a QUAD spanning those two.
     # So yea, not too bad.
     # Afterward, sweep up the duplicate verts like before
+
+    # Only make quad if I have lower coordinate (in each axis) then the neighbor.
+    # That'll prevent duplicates. FIXME: But it will break the lower-left-bottom edge.
+
+    # inds = faceneighbors.indices()
+    # inside = faceneighbors.values() < iso
+    inside = values < iso
+    # inside &= values[:,0:1] != 0 # make exactly '0.0' not create faces.
+
+    d_ = torch.FloatTensor((
+        -.5,-.5,0,
+        .5,-.5,0,
+        .5,.5,0,
+        -.5,.5,0)).view(4,3).to(D)
+    # d_ += .5
+    d_ *= gridScale
+
+    vs = torch.empty((0,3),dtype=torch.float32,device=D)
+
+    # for i in range(1):
+    # for i in (0,3):
+    # for i in (2,5):
+    for i in range(6):
+        if i <  3: dx,dy,dz = ( int(i==j) for j in range(3))
+        if i >= 3: dx,dy,dz = ( int(i-3==j) for j in range(3))
+        # if i <  3: dz,dy,dx = ( int(i==j) for j in range(3))
+        # if i >= 3: dz,dy,dx = ( int(i-3==j) for j in range(3))
+        dd = -torch.FloatTensor((dx,dy,dz)).to(D).view(1,3)
+        if i>=3: dd *= -1
+        print('dd',dd, dx,dy,dz)
+
+        if dx !=0: order = (2,0,1)
+        if dy !=0: order = (1,2,0)
+        if dz !=0: order = (0,1,2)
+        # if i >= 3: order = (order[0], order[2], order[1])
+
+        # mask = (inside[:,0] != inside[:,1+i])
+        mask = (inside[:,0] == 1) & (inside[:,1+i] == 0)
+        print(f' - mask on {mask.sum().item()} / {mask.size(0)}')
+
+        # p0 = inds[:,mask].t().float() + dd * gridScale * .5
+        # p0 = positions[mask] + dd * gridScale * .5
+        p0 = positions[mask] + dd * gridScale * .5
+        print(p0.shape, d_[0:1,order].shape)
+        p1 = p0 + d_[0:1,order]
+        p2 = p0 + d_[1:2,order]
+        p3 = p0 + d_[2:3,order]
+        p4 = p0 + d_[3:4,order]
+        if i < 3:
+            ps = torch.cat((p1,p2,p3, p3,p4,p1), 1).view(-1,3)
+        else:
+            ps = torch.cat((p2,p1,p3, p4,p3,p1), 1).view(-1,3)
+        vs = torch.cat((vs, ps), 0)
+
+    return vs
+
+
+
+
+
 
     '''
     cmp = (vals < iso)

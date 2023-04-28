@@ -94,6 +94,60 @@ def test_replicate():
     sys.exit(0)
 # test_replicate()
 
+
+'''
+Unlike marching cubes, the dual algorithms work directly on the isofunction.
+They need the 6 neighbours of an iso node (the node is the cube, the neighbors are the six cubes sharing faces).
+'''
+def replicate_dual_neighbours(sparseTensor, negativeAndPositive):
+    c = sparseTensor.indices()
+    v = sparseTensor.values()
+    D = c.device
+
+    C = 7 if negativeAndPositive else 4
+    N = c.size(1)
+    # Dense-dim + sparse-dim
+    size = (*sparseTensor.size(), C)
+    ov = torch.zeros((N,C), device=D)
+    out = torch.sparse_coo_tensor(c,ov,size=size).coalesce()
+
+    stencil = torch.sparse_coo_tensor(c, torch.ones_like(ov), size=size).coalesce()
+
+    grid = [
+        (0,0,0),
+        (-1,0,0),
+        (0,-1,0),
+        (0,0,-1) ]
+    if negativeAndPositive:
+        grid.extend([
+            ( 1,0,0),
+            (0, 1,0),
+            (0,0, 1) ])
+
+    for idx, (dx,dy,dz) in enumerate(grid):
+                off = torch.LongTensor([dx,dy,dz]).to(c.device).view(3,1)
+
+                coff = c.clone() - off
+                # coff = c.clone() + off
+                voff = ov.clone()
+                voff[...,idx] = v
+                mask  = (coff>=0).all(0)
+                mask &= (coff<torch.LongTensor(list(sparseTensor.size())).to(D)[:3].view(3,1)).all(0)
+                voff = voff[mask]
+                coff = coff[:,mask]
+                toff = stencil * torch.sparse_coo_tensor(coff, voff, size=size).coalesce()
+
+                out += toff
+
+                # Use this if running out of RAM
+                # out = out.coalesce()
+
+    out = out.coalesce()
+    return out
+
+
+
+
 def compute_normal_batch(p, normalize=False):
     assert p.ndim == 3 and p.size(1) == 3 and p.size(2) == 3
     # Subtract a from b and c, then cross those results
