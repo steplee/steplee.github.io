@@ -5,23 +5,23 @@ from .marching_common import *
 # This is a batched version of the above marching cubes algorithm.
 #
 # `positions` should be a floating point tensor [N,3] of 3d left-back-top points.
-# `vals` should be a floating point tensor [N,8] of isovalues of each of the points and it's seven neighbours.
+# `gridvals` should be a floating point tensor [N,8] of isovalues of each of the points and it's seven neighbours.
 # The order should match that of `replicate_to_gridcells()`: a truth table in ZYX order.
 #
-def marching_cubes(positions, vals, iso=0, gridScale=1):
+def marching_cubes(positions, gridvals, iso=0, gridScale=1):
     N,D = positions.size(0), positions.device
 
     positions = positions.float()
 
     N = positions.size(0)
     assert positions.size(1) == 3
-    assert vals.size() == (N,8)
+    assert gridvals.size() == (N,8)
     D = positions.device
 
     # Must be long -- cannot be byte. That would be interpreted as a mask later on.
     cubeIndex  = torch.zeros((N), dtype=torch.int64, device=D)
     for i in range(8):
-        cubeIndex |= (1<<i) * (vals[:,i] < iso).long()
+        cubeIndex |= (1<<i) * (gridvals[:,i] < iso).long()
 
     # NOTE: My triTable differs a little bit from Bourke's
     # He uses a loop until any -1 is read.
@@ -37,8 +37,8 @@ def marching_cubes(positions, vals, iso=0, gridScale=1):
         0,0,0, 1,0,0, 1,1,0, 0,1,0,
         0,0,1, 1,0,1, 1,1,1, 0,1,1]).to(D).reshape(-1,3) * gridScale
     def blend(ai,bi):
-        av = vals[:,ai]
-        bv = vals[:,bi]
+        av = gridvals[:,ai]
+        bv = gridvals[:,bi]
         ap = p[ai]
         bp = p[bi]
 

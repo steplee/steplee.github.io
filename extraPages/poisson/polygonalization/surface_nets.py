@@ -157,10 +157,10 @@ def surface_nets_one_res_0(indices, vals, iso=0, gridScale=1):
 
 
 
+# FIXME: The mikola lysenko post recommends taking mean of marching-cubes based cell vertices,
+#        while using the connectivity of the voxelized approach.
+#        Doing that requires the original sparse tensor, so I'd have to change a bit here.
 
-
-def find_quads_convert_to_tris(indices, vals):
-    pass
 
 def surface_nets_one_res_1(positions, values, iso=0, gridScale=1):
     N,D = positions.size(0), positions.device
@@ -227,41 +227,3 @@ def surface_nets_one_res_1(positions, values, iso=0, gridScale=1):
     return vs
 
 
-
-
-
-
-    '''
-    cmp = (vals < iso)
-    masks1 = (cmp[:,1:] != cmp[:,0:1]).any(1)
-
-    vertIndices = indices[:,masks1]
-    print(f'vertIndices shape {vertIndices.shape} from indices {indices.shape} vals {vals.shape}')
-    # print(vertIndices)
-    vertSt = torch.sparse_coo_tensor(vertIndices, torch.ones(vertIndices.size(1), device=D)).coalesce()
-    print(vertSt.shape)
-    # vertNeighbors = replicate_to_gridcells(vertSt)
-
-    # Create triangles for each group-of-three
-    vertexKeepMask, triInds = find_tris(vertSt)
-
-    NV0 = vertSt.indices().size(1)
-    # remap = torch.arange(NV0, device=D)[vertexKeepMask]
-    # remap = (vertexKeepMask.long().cumsum(0))
-    # Actually, we want a *postfix* scan, not a prefix scan. So subtract one.
-    remap = (vertexKeepMask.long().cumsum(0) - 1).clamp(0,9999999999)
-
-    vertIndices = vertIndices[:, vertexKeepMask]
-    print(f'remapping num verts {NV0} -> {vertexKeepMask.sum().item()}')
-    print(remap)
-    # print(remap[triInds])
-    # return None
-    triInds = remap[triInds]
-    print(f' - final verts & inds {vertIndices.shape} {triInds.shape}')
-
-    NV1 = vertIndices.size(1)
-    assert (triInds < NV1).all()
-    '''
-
-
-    return vertIndices, triInds

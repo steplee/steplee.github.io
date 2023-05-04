@@ -2,8 +2,8 @@ import torch, torch.nn.functional as F
 import numpy as np, sys, time
 torch.set_printoptions(linewidth=150, edgeitems=10)
 
-from solvers import solve_cg, solve_cg_AtA
-from polygonalization.run_marching_algo import run_marching, show_marching_viz
+from .solvers import solve_cg, solve_cg_AtA
+from ..polygonalization.run_marching_algo import run_marching, show_marching_viz
 
 '''
 
@@ -274,25 +274,35 @@ def get_stencil(iteration=2, kind='regular', size=-1, normalize='l1'):
 
     return img[0,0]
 
+__lap_kernels = {}
 def get_laplacian(A):
+    global __lap_kernels
     d = A.ndim
     A = A.unsqueeze(0).unsqueeze_(0)
-    K = torch.zeros((3,)*d, device=A.device).unsqueeze_(0).unsqueeze_(0)
     if d == 2:
-        K[...,1,1] = -4
-        for dy in range(3):
-            for dx in range(3):
-                if (dx == 1 and dy != 1) or (dy == 1 and dx != 1):
-                    K[...,dy,dx] = 1
-        return F.conv2d(A, K, padding=2)
-    if d == 3:
-        K[...,1,1,1] = -6
-        for dz in range(3):
+        if 2 not in __lap_kernels:
+            K = torch.zeros((3,)*d, device=A.device).unsqueeze_(0).unsqueeze_(0)
+            K[...,1,1] = -4
             for dy in range(3):
                 for dx in range(3):
-                    if (dz != 1 and dy == 1 and dx == 1) or (dy != 1 and dx == 1 and dz == 1) or (dx != 1 and dz == 1 and dy == 1):
-                        K[...,dz,dy,dx] = 1
-        # print(K)
+                    if (dx == 1 and dy != 1) or (dy == 1 and dx != 1):
+                        K[...,dy,dx] = 1
+            __lap_kernels[2] = K
+        else:
+            K = __lap_kernels[2]
+        return F.conv2d(A, K, padding=2)
+    if d == 3:
+        if 3 not in __lap_kernels:
+            K = torch.zeros((3,)*d, device=A.device).unsqueeze_(0).unsqueeze_(0)
+            K[...,1,1,1] = -6
+            for dz in range(3):
+                for dy in range(3):
+                    for dx in range(3):
+                        if (dz != 1 and dy == 1 and dx == 1) or (dy != 1 and dx == 1 and dz == 1) or (dx != 1 and dz == 1 and dy == 1):
+                            K[...,dz,dy,dx] = 1
+                __lap_kernels[3] = K
+        else:
+            K = __lap_kernels[3]
         return F.conv3d(A, K, padding=2)[0,0]
     assert False
 def get_convolved_lap(A):
@@ -427,6 +437,12 @@ def form_solve_system(stencil, coo, v, SO, dev):
 # In case of the 3d 5x5 stencil, this is a memory savings of about 6x.
 # The laplacian stencil itself has a support of 125 cells.
 # The laplacian stencil convolved with itself has a support of 729 cells.
+#
+# The body of this function is much like form_solve_system(), only
+# it DOES NOT use convLapStencil.
+#
+# WARNING: I think this is incorrect because it's possible that the gradient in both sides of the outer inner product
+# expand the support of the arguments. This function will miss those created non-zeros?
 def form_solve_system_AtA(stencil, coo, v, SO, dev):
     st = time.time()
 
@@ -496,45 +512,10 @@ def form_solve_system_AtA(stencil, coo, v, SO, dev):
     print(f' - form_solve_system_AtA took {time.time()-st:.2f}')
     return x1
 
-# Sparse 3d convolution.
-def run_psr(pts0, nrmls0, D=6):
-    dev = pts0.device
-
-    # print(f' - stencil {stencil.shape}')
-    print(f' - pts {pts.shape}')
-    print(f' - nrmls {nrmls.shape}')
-
-    # Map to fixed resolution grid, then de-duplicate entries.
-    coo1, off, scale, size = forward_into_grid(pts0, D=D, pad=9)
-    st1 = torch.sparse_coo_tensor(coo1.long().t(), nrmls0, size=(size,size,size,3)).coalesce()
-    # st1._values().div_(st1._values().norm(dim=1,keepdim=True))
-    # NOTE: Consider not normalizing, that we we aren't merging bins and also losing samples.
-    coo2, nrmls2 = st1.indices(), F.normalize(st1.values(), dim=1)
-
-    stencil = get_stencil()
-    stencil_st = stencil.to_sparse().coalesce() # A convenient way to iterate over indices/values
-
-    # -----------------------------------------------------------------------------------------------------------
-    # Compute vector field V
-    #
-    Vc,Vv = torch.empty((3,0),dtype=torch.long,device=dev), torch.empty((0,3),dtype=torch.float32,device=dev)
-
-    for D,W in iter_stencil(stencil_st):
-        Vc = torch.cat((Vc, coo2 - D.view(3,1)), 1)
-        Vv = torch.cat((Vv, W*nrmls2), 0)
-
-    V = torch.sparse_coo_tensor(Vc,Vv, size=(size,size,size,3)).coalesce()
-    print(f' - V sizes (uncoalesced {Vc.size(1)}) (final nnz {V._nnz()}={V.indices().size(1)})')
-
-    # -----------------------------------------------------------------------------------------------------------
-    # Compute target `b` vector, whose components are the inner product of the basis functions Fo
-    # with the divergence of V
-    #
-    # The simplest way to do this would be to compute `div[V]` then convolve with Fo.
-    # That requires as much ram as V. However V is much larger than {Fo}.
-    # So (perhaps?) another way to compute it is by considering Fo as the main thing.
-    #
-    # Here is the first one.
+def compute_v(st0,V,stencil_st):
+    dev = V.device
+    size = V.size(0)
+    coo = st0.indices()
 
     # Compute div[V]
     # NOTE: This relies on linearity. It computes the divergnce by a sparse 3d conv (not memory efficient)
@@ -630,17 +611,17 @@ def run_psr(pts0, nrmls0, D=6):
     # TODO: Implement above using sparse matrix technique
 
     SV = V._nnz()
-    SO = st1._nnz()
+    SO = st0._nnz()
 
     Fv_indices,Fv_values = torch.empty((2,0),dtype=torch.long,device=dev), torch.empty((0,),dtype=torch.float32,device=dev)
     indexLookupDV = torch.sparse_coo_tensor(divV.indices(), torch.arange(divV._nnz(),device=dev), size=divV.size()[:3]).coalesce()
-    indexLookupO = torch.sparse_coo_tensor(st1.indices(), torch.arange(st1._nnz(),device=dev), size=V.size()[:3]).coalesce()
+    indexLookupO = torch.sparse_coo_tensor(st0.indices(), torch.arange(st0._nnz(),device=dev), size=V.size()[:3]).coalesce()
     # WARNING: This requires tmp_v to have the same indices layout after sorting as before. So all indices must be resident, and have there orders unchanged.
     #          This *should* work as long as stencil shift D is the same for every element (it is) and it causes no wrap around nor dropping (we have to pad enough)
     for D,W in iter_stencil(stencil_st):
         # tmpc = torch.cat((tmpc, coo2 - D.view(3,1)), 1)
         # tmpv = torch.cat((tmpv, nrmls2), 0)
-        tmpc = coo2 - D.view(3,1)
+        tmpc = coo - D.view(3,1)
         tmpv = torch.ones_like(tmpc[0])
         tmp = torch.sparse_coo_tensor(tmpc,tmpv, size=indexLookupDV.size()).coalesce()
         tmp_v = (tmp * indexLookupDV).coalesce()
@@ -662,13 +643,60 @@ def run_psr(pts0, nrmls0, D=6):
 
         if 0:
             # This shows that under if the two conditions are met, the index order should not change
-            tmpc = coo2 - D.view(3,1)
+            tmpc = coo - D.view(3,1)
             tmpv = torch.arange(len(tmpc[0]), device=dev)
             tmp = torch.sparse_coo_tensor(tmpc,tmpv, size=indexLookupDV.size()).coalesce()
 
     Fv = torch.sparse_coo_tensor(Fv_indices, Fv_values, size=(SO,SV)).coalesce()
     print(' - Fv:\n', Fv)
     v = Fv @ divV.values()
+    return v
+
+
+# Sparse 3d convolution.
+def run_psr(pts0, nrmls0, D=6):
+    dev = pts0.device
+
+    # print(f' - stencil {stencil.shape}')
+    print(f' - pts {pts.shape}')
+    print(f' - nrmls {nrmls.shape}')
+
+    # Map to fixed resolution grid, then de-duplicate entries.
+    coo0, off, scale, size = forward_into_grid(pts0, D=D, pad=9)
+    st0 = torch.sparse_coo_tensor(coo0.long().t(), nrmls0, size=(size,size,size,3)).coalesce()
+    # st0._values(0.div_(st0._values().norm(dim=1,keepdim=True))
+    # NOTE: Consider not normalizing, that we we aren't merging bins and also losing samples.
+    coo, nrmls2 = st0.indices(), F.normalize(st0.values(), dim=1)
+
+    stencil = get_stencil()
+    stencil_st = stencil.to_sparse().coalesce() # A convenient way to iterate over indices/values
+
+    # -----------------------------------------------------------------------------------------------------------
+    # Compute vector field V
+    #
+    Vc,Vv = torch.empty((3,0),dtype=torch.long,device=dev), torch.empty((0,3),dtype=torch.float32,device=dev)
+
+    for D,W in iter_stencil(stencil_st):
+        Vc = torch.cat((Vc, coo - D.view(3,1)), 1)
+        Vv = torch.cat((Vv, W*nrmls2), 0)
+
+    V = torch.sparse_coo_tensor(Vc,Vv, size=(size,size,size,3)).coalesce()
+    print(f' - V sizes (uncoalesced {Vc.size(1)}) (final nnz {V._nnz()}={V.indices().size(1)})')
+
+    # -----------------------------------------------------------------------------------------------------------
+    # Compute target `b` vector, whose components are the inner product of the basis functions Fo
+    # with the divergence of V
+    #
+    # The simplest way to do this would be to compute `div[V]` then convolve with Fo.
+    # That requires as much ram as V. However V is much larger than {Fo}.
+    # So (perhaps?) another way to compute it is by considering Fo as the main thing.
+    #
+    # Here is the first one.
+
+    SV = V._nnz() # basis support
+    SO = st0._nnz() # Octree size
+
+    v = compute_v(st0, V, stencil_st)
     print(' - v:', v.shape, '\n', v)
 
     # -----------------------------------------------------------------------------------------------------------
@@ -692,8 +720,8 @@ def run_psr(pts0, nrmls0, D=6):
 
     # The second call is more sparse, but slower on small inputs.
     # It requires 2x sparse matrix multiplies, but about 10x less memory.
-    x1 = form_solve_system(stencil, coo2, v, SO, dev)
-    x1 = form_solve_system_AtA(stencil, coo2, v, SO, dev)
+    # x1 = form_solve_system(stencil, coo, v, SO, dev)
+    x1 = form_solve_system_AtA(stencil, coo, v, SO, dev)
 
 
     # -----------------------------------------------------------------------------------------------------------
@@ -702,7 +730,7 @@ def run_psr(pts0, nrmls0, D=6):
 
     Ic,Iv = torch.empty((3,0),dtype=torch.long,device=dev), torch.empty((0),dtype=torch.float32,device=dev)
     for D,W in iter_stencil(stencil_st):
-        Ic = torch.cat((Ic, coo2 - D.view(3,1)), 1)
+        Ic = torch.cat((Ic, coo - D.view(3,1)), 1)
         Iv = torch.cat((Iv, torch.full((SO,),W.item(),dtype=torch.float32,device=dev)), 0)
 
     I = torch.sparse_coo_tensor(Ic,Iv, size=(size,size,size)).coalesce()
@@ -716,30 +744,29 @@ def run_psr(pts0, nrmls0, D=6):
 
 
 
+if __name__ == '__main__':
+    torch.manual_seed(0)
+    if 0:
+        pts   = torch.randn(512*16, 3).cuda()
+        # pts   = pts / pts.norm(dim=1,keepdim=True)
+        pts   = pts / pts.abs().sum(dim=1,keepdim=True)
+        pts   = pts * torch.rand(pts.size(0),1,device=pts.device).sqrt() # Random inside sphere
+        pts = pts * .5
+        nrmls   = pts / pts.norm(dim=1,keepdim=True)
+    else:
+        ps     = torch.randn(512*2, 3).cuda()
+        ps     = ps / ps.abs().sum(dim=1,keepdim=True)
+        ps     = ps * torch.rand(ps.size(0),1,device=ps.device).sqrt() # Random inside sphere
+        ps     = ps * .25
+        nrmls0 = ps / ps.norm(dim=1,keepdim=True)
+        ps0    = ps - .2
 
-
-torch.manual_seed(0)
-if 0:
-    pts   = torch.randn(512*16, 3).cuda()
-    # pts   = pts / pts.norm(dim=1,keepdim=True)
-    pts   = pts / pts.abs().sum(dim=1,keepdim=True)
-    pts   = pts * torch.rand(pts.size(0),1,device=pts.device).sqrt() # Random inside sphere
-    pts = pts * .5
-    nrmls   = pts / pts.norm(dim=1,keepdim=True)
-else:
-    ps     = torch.randn(512*2, 3).cuda()
-    ps     = ps / ps.abs().sum(dim=1,keepdim=True)
-    ps     = ps * torch.rand(ps.size(0),1,device=ps.device).sqrt() # Random inside sphere
-    ps     = ps * .25
-    nrmls0 = ps / ps.norm(dim=1,keepdim=True)
-    ps0    = ps - .2
-
-    ps1    = ps + .2
-    nrmls1 = ps / ps.norm(dim=1,keepdim=True)
-    pts    = torch.cat((ps0, ps1), 0)
-    nrmls  = torch.cat((nrmls0, nrmls1), 0)
-print(' - pts  :\n', pts)
-print(' - nrmls:\n', nrmls)
-run_psr(pts, nrmls)
-# viz_conv_of_lap()
-# viz_box()
+        ps1    = ps + .2
+        nrmls1 = ps / ps.norm(dim=1,keepdim=True)
+        pts    = torch.cat((ps0, ps1), 0)
+        nrmls  = torch.cat((nrmls0, nrmls1), 0)
+    print(' - pts  :\n', pts)
+    print(' - nrmls:\n', nrmls)
+    # run_psr(pts, nrmls)
+    # viz_conv_of_lap()
+    viz_box()

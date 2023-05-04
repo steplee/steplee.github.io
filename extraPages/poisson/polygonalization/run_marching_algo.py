@@ -109,6 +109,8 @@ def show_marching_viz(positions, triInds, pts=None, nrls=None):
     print(f' - triInds   shape {triInds  .shape}')
     print(f' - normals   shape {normals  .shape}')
 
+    # positions = positions + torch.arange(positions.size(0),device=positions.device).view(-1,1) * .000001
+
     colors = torch.ones((positions.shape[0],4), dtype=torch.float32, device=positions.device)
     # colors[:,0:3] = positions[:,0:3].abs() * 4
     # colors[:,0:3] = normals[:,0:3].abs() * 1
@@ -118,7 +120,7 @@ def show_marching_viz(positions, triInds, pts=None, nrls=None):
     # Viz
     # -------------------------------------------------------------------------------------
 
-    from render import GridRenderer, glDisable, GL_CULL_FACE, glEnable
+    from ..render import GridRenderer, glDisable, GL_CULL_FACE, glEnable
     r = GridRenderer((1024,)*2)
     r.init(True)
     r.set_mesh(
@@ -166,6 +168,6 @@ def test_marching(method='cubes'):
     show_marching_viz(positions, inds, pts=pts1,nrls=nrmls0)
 
 if __name__ == '__main__':
-    test_marching('cubes')
+    # test_marching('cubes')
     # test_marching('tetra')
     test_marching('surfaceNets')

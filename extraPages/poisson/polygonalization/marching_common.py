@@ -216,6 +216,7 @@ def merge_duplicate_verts(triVerts, powTwoResolution=20):
     c = vertsFlat - offset
     scale = (SIZE-1) / c.max()
     c.mul_(scale)
+    c.add_(.49999)
     c = c.t().long()
 
     # NOTE: What I really need is thrust::sort_by_key() thrust::inclusive_scan_by_key() that simply keeps the first value.

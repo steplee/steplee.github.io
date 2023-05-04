@@ -1,5 +1,5 @@
 import torch
-from renderBase import *
+from .renderBase import *
 from OpenGL.GL.shaders import compileProgram, compileShader
 
 _shader_cache = {}
