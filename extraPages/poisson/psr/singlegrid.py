@@ -300,7 +300,7 @@ def get_laplacian(A):
                     for dx in range(3):
                         if (dz != 1 and dy == 1 and dx == 1) or (dy != 1 and dx == 1 and dz == 1) or (dx != 1 and dz == 1 and dy == 1):
                             K[...,dz,dy,dx] = 1
-                __lap_kernels[3] = K
+            __lap_kernels[3] = K
         else:
             K = __lap_kernels[3]
         return F.conv3d(A, K, padding=2)[0,0]
@@ -323,6 +323,45 @@ if 0:
     la = get_convolved_lap(s)
     print(la, la.shape)
     exit()
+
+__grad_kernels = {}
+def get_grad(A):
+    global __grad_kernels
+    d = A.ndim
+    A = A.unsqueeze(0).unsqueeze_(0)
+    if d == 2:
+        if 2 not in __grad_kernels:
+            K = torch.zeros((3,)*d, device=A.device).unsqueeze_(0).unsqueeze_(0).repeat(3,1,1,1)
+            K[...,1,1,1] = 2
+
+            K[0,0,0,1] = -1
+            K[0,0,2,1] = -1
+
+            K[1,0,1,0] = -1
+            K[1,0,1,2] = -1
+            __grad_kernels[2] = K
+        else:
+            K = __grad_kernels[2]
+        return F.conv2d(A, K, padding=2)[0]
+    if d == 3:
+        if 3 not in __grad_kernels:
+            K = torch.zeros((3,)*d, device=A.device).unsqueeze_(0).unsqueeze_(0).repeat(3,1,1,1,1)
+            K[...,1,1,1] = 2
+
+            K[0,0,0,1,1] = -1
+            K[0,0,2,1,1] = -1
+
+            K[1,0,1,0,1] = -1
+            K[1,0,1,2,1] = -1
+
+            K[2,0,1,1,0] = -1
+            K[2,0,1,1,2] = -1
+            __grad_kernels[3] = K
+        else:
+            K = __grad_kernels[3]
+        return F.conv3d(A, K, padding=2)[0]
+    assert False
+
 
 def forward_into_grid(x, D, pad, relativePad=.05):
     assert x.ndim == 2 and x.size(1) == 3
@@ -512,7 +551,7 @@ def form_solve_system_AtA(stencil, coo, v, SO, dev):
     print(f' - form_solve_system_AtA took {time.time()-st:.2f}')
     return x1
 
-def compute_v(st0,V,stencil_st):
+def compute_divV(st0, V, stencil_st):
     dev = V.device
     size = V.size(0)
     coo = st0.indices()
@@ -583,6 +622,14 @@ def compute_v(st0,V,stencil_st):
         print(' -     V  shape', V._nnz())
         print(' - div[V] shape', divV._nnz())
 
+    return divV
+
+
+def compute_v(st0,V,stencil_st):
+    divV = compute_divV(st0, V, stencil_st)
+
+    dev = V.device
+    coo = st0.indices()
 
     # Compute vector v, with each coordinate v_o = <div[V] , Fo>
 
@@ -593,11 +640,6 @@ def compute_v(st0,V,stencil_st):
     # In this section F will need to be a matrix that maps:
     #      from the size of div[V] (same as size of V, upto 125x the size of octree)
     #      to the size of O (the octree)
-
-    # vc,vv = torch.empty((3,0),dtype=torch.long,device=dev), torch.empty((0),dtype=torch.float32,device=dev)
-    # for D,W in iter_stencil():
-        # Vc = torch.cat((Vc, coo2 - D.view(3,1)), 1)
-        # Vv = torch.cat((Vv, nrmls2), 0)
 
     # NOTE: to compute the v vector:
     #     1) Form sparse matrix Fv which maps R^|V| -> R^|O|
@@ -767,6 +809,6 @@ if __name__ == '__main__':
         nrmls  = torch.cat((nrmls0, nrmls1), 0)
     print(' - pts  :\n', pts)
     print(' - nrmls:\n', nrmls)
-    # run_psr(pts, nrmls)
+    run_psr(pts, nrmls)
     # viz_conv_of_lap()
-    viz_box()
+    # viz_box()
