@@ -626,16 +626,14 @@ def compute_divV(st0, V, stencil_st):
 
 
 def compute_v(st0,V,stencil_st):
+    # Compute vector v, with each coordinate v_o = <div[V] , Fo>
+
     divV = compute_divV(st0, V, stencil_st)
 
     dev = V.device
     coo = st0.indices()
 
-    # Compute vector v, with each coordinate v_o = <div[V] , Fo>
 
-    # It is now necessary to use actual sparse *matrices* instead of using st's as arrays.
-    # div[V] will be a matrix. We'll select only the entries from the tensor that correspond to nodes {o}.
-    # Fo will be a sparse matrix.
 
     # In this section F will need to be a matrix that maps:
     #      from the size of div[V] (same as size of V, upto 125x the size of octree)
@@ -744,6 +742,11 @@ def run_psr(pts0, nrmls0, D=6):
     # -----------------------------------------------------------------------------------------------------------
     # Compute modified Laplacian matrix L
     #
+
+
+    # It is now necessary to use actual sparse *matrices* instead of using st's as arrays.
+    # div[V] will be a matrix. We'll select only the entries from the tensor that correspond to nodes {o}.
+    # Fo will be a sparse matrix.
 
     # Khazdan writes the matrix has upto 125 nonzero columns, but shouldn't it really be <125^2 because
     # a convolution of the two node functions results in a much bigger support region than a convolution of a node fn and a point?

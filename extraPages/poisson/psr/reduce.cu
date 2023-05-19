@@ -67,8 +67,14 @@ namespace {
 	// FIXME: Either use a weighting coming from the shift, or evaluate the F kernel for each point
 	//        to get the non-blocky tent value.
 
-	// ~~~I'll use the form: A_ij = <Ac_i, nabla{Af}_j~~~
-	// Actually: A_ij = <grad[Af_i], grad[Ac_j]>
+	// Compute: A_ij = <grad[Af_i], grad[Ac_j]>
+	//
+	// Note: Nodes i & j are related if the gradient of either of there support's intersect.
+	//       Think of it like two circles around two points. The points are related if the circles intersect at all.
+	//       This results in many more relations than if we just tested one points' circle against only the other point.
+	// Note: The gradient operator decreases sparsity and increases the number of nonzeros.
+	// Note: Handling the scale difference should do some interpolation on the coarse grid's kernel weights.
+	//
 	torch::Tensor make_level_transfer(
 			int levelF, int levelC,
 			torch::Tensor indsF,
@@ -78,16 +84,13 @@ namespace {
 
 		// Kernel width (not number of elements)
 		int stencilSize = gradStencilSt.size(0);
-		auto gradStencilInds = gradStencilSt.indices().contiguous() - stencilSize/2;
-		// auto gradStencilVals = gradStencilSt.values().cpu();
+		auto gradStencilInds = gradStencilSt.indices().contiguous() - stencilSize/2; // NOTE: Shift here.
 		auto gradStencilVals = gradStencilSt.values();
 		assert(gradStencilInds.size(0) == 3);
 		assert(gradStencilVals.size(1) == 3);
 		assert(gradStencilVals.size(0) == gradStencilInds.size(1));
 
 		int nStencil = gradStencilInds.size(1);
-		// auto gradStencilInds_ = gradStencilInds.accessor<long ,2>();
-		// auto gradStencilValsCpu_ = gradStencilValsCpu.accessor<float,1>();
 
 		assert((indsC < (1<<levelC)).all().item().to<bool>());
 		assert((indsF < (1<<levelF)).all().item().to<bool>());
@@ -96,14 +99,14 @@ namespace {
 		// the divisor to go from F -> C
 		int64_t levelDivisor = 1 << (levelF - levelC);
 
-		std::cout << " - input sizes C=" << indsC.sizes() << " F=" << indsF.sizes() << " level divisor " << levelDivisor << std::endl;
+		// std::cout << " - input sizes C=" << indsC.sizes() << " F=" << indsF.sizes() << " level divisor " << levelDivisor << std::endl;
 
 		// NOTE: indsFC may not be sorted, but that is okay!
 		// It is not sorted because if {x=5,y=2}, and the divisor is 2, then it becomes 2 instead of "2.5" and any point with {x=4, y>2} will have moved in front!
 		// It is okay because we never change the order, so indsFF and indsFC correspond element by element!
 
 		// [3,N] -> [N]
-		std::cout << " - flattening coords." << std::endl;
+		// std::cout << " - flattening coords." << std::endl;
 		// torch::Tensor indsCC = flatten_coords(indsC, levelC);
 		torch::Tensor indsFF0 = flatten_coords(indsF, levelF);
 		// torch::Tensor indsFC = flatten_coords(indsF.div(levelDivisor, "floor"), levelC);
@@ -112,7 +115,7 @@ namespace {
 		// assert(NF == indsFC.size(0));
 
 
-		std::cout << " - verifying sorted (after flatten)." << std::endl;
+		// std::cout << " - verifying sorted (after flatten)." << std::endl;
 		// std::cout << " - indsF:\n" << indsF;
 		// std::cout << " - indsF/divisor:\n" << indsF.div(levelDivisor, "floor");
 		// std::cout << " - indsFF:\n" << indsFF;
@@ -133,13 +136,13 @@ namespace {
 		auto gi_gj_cpu_acc = gi_gj_cpu.accessor<float,2>();
 
 		int nActualLoops = 0;
-		std::cout << " - running " << nStencil*nStencil << " loops." << std::endl;
+		// std::cout << " - running " << nStencil*nStencil << " loops." << std::endl;
 		for (int i=0; i<nStencil; i++) {
 			torch::Tensor di = gradStencilInds.index({Slice(),Slice(i,i+1)});
-			torch::Tensor gi = gradStencilVals.index({i});
+			// torch::Tensor gi = gradStencilVals.index({i});
 			for (int j=0; j<nStencil; j++) {
 				torch::Tensor dj = gradStencilInds.index({Slice(),Slice(j,j+1)});
-				torch::Tensor gj = gradStencilVals.index({j});
+				// torch::Tensor gj = gradStencilVals.index({j});
 
 				// NOTE: severe aliasing. Should have vectorial values that are interpolated with fine/coarse grid.
 				// float v = (gi * gj).sum().item().to<float>();
@@ -152,45 +155,26 @@ namespace {
 				}
 
 
-				/*
-				torch::Tensor hits = torch::zeros({NF}, torch::TensorOptions().dtype(torch::kLong).device(torch::kCUDA));
-
-				// Find the next coord in the C grid from the F grid.
-				thrust::lower_bound(thrust::device,
-						(const uint64_t*)indsFC.data_ptr<int64_t>(),
-						(const uint64_t*)indsFC.data_ptr<int64_t>() + NC,
-						(const uint64_t*)indsCC.data_ptr<int64_t>(),
-						(const uint64_t*)indsCC.data_ptr<int64_t>() + NF,
-						hits.data_ptr<int64_t>(),
-						thrust::less<uint64_t>());
-
-				// Now we can use them to check if we have a hit in the fine grid.
-				// i.e. if the two grids had the same scale, we'd want equality.
-				// But with differing grids, multiple fine cells may map to one coarse cell.
-
-				// We'll subselect this.
-				torch::Tensor addInds = torch::stack({ indsFC, hits }, 0);
-
-				// torch::Tensor addVals; // I think this should be stencil times something based on offset... FIXME:
-				torch::Tensor addVals = torch::full({NF}, v, torch::TensorOptions().device(torch::kCUDA));
-
-				*/
-
 				auto indsFF_ = indsF.add(di);
 				auto indsCC_ = indsC.add(dj);
-				// auto indsFF = flatten_coords(indsFF_, levelF);
 				auto indsFC_div = indsFF_.div_(levelDivisor, "floor");
 				auto indsFC_shifted = flatten_coords(indsFC_div, levelC);
-				// auto indsCC_shifted = indsCC.sub(dj);
 				auto indsCC_shifted = flatten_coords(indsCC_, levelC);
 
-				// i^ = i + di
-				// j^ = j + dj, then
-				// j = i + di - dj
+				// Two two circle centers are i & j. The current inspected points are i^ & j^.
+				// If they intersect then we need to know the original indices: i_ & j_
+				// We know that the points have the save coordinates on the coarse grid (they intersect).
+				// We can use i_ = i.
+				// But j_ is not simply j, because the arrays are not aligned.
+				// Instead we need j_ in terms of i:
+				//		i^ = i + di
+				//		j^ = j + dj, then
+				//		j_ = i + di - dj
+				//         = i^ - dj
+				// Draw a sort of commutative diagram to see.
+				//
 				// These should be be in the original indsC set (or otherwise masked out later on)
 				auto indsFC_unshifted = flatten_coords(indsFC_div.sub(dj), levelC);
-
-
 
 				// Actually the binary_search fn looks like a good fit here.
 				//
@@ -221,28 +205,34 @@ namespace {
 				torch::Tensor addVals = gi_gj.index({Slice(i,i+1),j}).repeat({NF});
 
 				addInds = addInds.masked_select(mask.view({1,-1})).view({2,-1});
-				addVals = addVals.masked_select(mask);
 				if (addInds.numel() > 0) {
-					// std::cout << " cat i " << outInds.sizes() << addInds.sizes() << "\n";
-					// std::cout << " cat v " << outVals.sizes() << addVals.sizes() << "\n";
+					addVals = addVals.masked_select(mask);
 					// std::cout << " - now have num entries " << outVals.size(0) << "\n";
 					// std::cout << " - assosciate:\n" << torch::stack({unflatten_coords(addInds.index({0}),levelF), unflatten_coords(addInds.index({1}),levelC)},1) << "\n";
+					outInds = torch::cat({outInds,addInds},1);
+					outVals = torch::cat({outVals,addVals},0);
 				}
-				outInds = torch::cat({outInds,addInds},1);
-				outVals = torch::cat({outVals,addVals},0);
 			}
 		}
-		std::cout << " - num loops " << nActualLoops << " / " << (nStencil*nStencil) << "\n";
+		// std::cout << " - ran loops " << nActualLoops << " / " << (nStencil*nStencil) << "\n";
 
-		// TODO: We have the FLATTENED-INDICES as the elements.
+		// FIXME: This is fucked.
+
+		// TODO: We have the FLATTENED-COORD-INDICES as the elements.
 		// For the coming sparse matrix multiplies, we need the VECTOR-INDICES of the SPATIAL-INDICES.
 		// We can do this with thrust by using lower_bound on the mapped indices.
 		int outN = outInds.size(1);
-		assert(thrust::is_sorted(thrust::device, (uint64_t*)indsFF0.data_ptr<int64_t>(), (uint64_t*)indsFF0.data_ptr<int64_t>()+NF));
+		// assert(thrust::is_sorted(thrust::device, (uint64_t*)indsFF0.data_ptr<int64_t>(), (uint64_t*)indsFF0.data_ptr<int64_t>()+NF));
 
 		// torch::Tensor outInds2 = torch::zeros_like(outInds);
 
+		std::cout << " - outInds size : " << outInds.sizes() << "\n";
+		std::cout << " - indsFF0 size : " << indsFF0.sizes() << "\n";
+		// std::cout << " - indsFF0      :\n" << indsFF0 << "\n";
+
 		// the FF indices.
+		/*
+		assert(thrust::is_sorted(thrust::device, (uint64_t*)indsFF0.data_ptr<int64_t>(), (uint64_t*)indsFF0.data_ptr<int64_t>()+indsFF0.numel()));
 		thrust::lower_bound(thrust::device,
 				(uint64_t*)indsFF0.data_ptr<int64_t>(), (uint64_t*)indsFF0.data_ptr<int64_t>()+indsFF0.numel(),
 				(uint64_t*)outInds.data_ptr<int64_t>(), (uint64_t*)outInds.data_ptr<int64_t>()+outN,
@@ -257,11 +247,10 @@ namespace {
 				(uint64_t*)outInds.data_ptr<int64_t>()+outN, (uint64_t*)outInds.data_ptr<int64_t>()+outN*2,
 				(uint64_t*)outInds.data_ptr<int64_t>()+outN,
 				thrust::less<uint64_t>());
+		*/
 
 
 		return torch::sparse_coo_tensor(outInds,outVals).coalesce();
-		// return torch::sparse_coo_tensor(outInds,outVals);
-
 	}
 }
 

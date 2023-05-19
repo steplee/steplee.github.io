@@ -14,17 +14,20 @@ extMod = load('extMod', sources=['poisson/psr/reduce.cu'], extra_cuda_cflags=['-
 
 def test_extMod():
     torch.manual_seed(0)
-    lvlF = 8
-    lvlC = 4
-    indsF = torch.randint(0, 1<<lvlF, (3,1000)).cuda()
-    indsC = torch.randint(0, 1<<lvlC, (3,200)).cuda()
+    lvlF = 6
+    lvlC = 3
+    indsF = torch.randint(0, 1<<lvlF, (3,500)).cuda()
+    # indsC = torch.randint(0, 1<<lvlC, (3,200)).cuda()
+    indsC = indsF[:,:100] >> (lvlF - lvlC)
     # indsC,levelC = indsF,lvlF # WARNING: for same level test
 
     # We want them sorted properly...
-    indsF = torch.sparse_coo_tensor(indsF,torch.zeros_like(indsF[0])).coalesce().indices()
-    indsC = torch.sparse_coo_tensor(indsC,torch.zeros_like(indsC[0])).coalesce().indices()
-    print(indsF)
-    print(indsC)
+    stF = torch.sparse_coo_tensor(indsF,torch.zeros_like(indsF[0])).coalesce()
+    stC = torch.sparse_coo_tensor(indsC,torch.zeros_like(indsC[0])).coalesce()
+    indsF = stF.indices()
+    indsC = stC.indices()
+    print(stF)
+    print(stC)
 
     # gradStencil = get_grad(get_stencil()[2:3,2:3,2:3])
     gradStencil = get_grad(get_stencil())
@@ -44,6 +47,9 @@ def test_extMod():
     torch.cuda.synchronize()
     et = time.time()
 
+    print(f' - n unique A[0]: {torch.unique(A.indices()[0]).numel()}')
+    print(f' - n unique A[1]: {torch.unique(A.indices()[1]).numel()}')
+
     print(' - computed A:\n', A)
     print(f' - took {(et-st)*1000:.2f}ms')
 
@@ -58,6 +64,10 @@ class MultiGrid_Solver():
         self.nrls = nrls
 
     def run_it(self, D=10):
+        pts0 = self.pnts
+        nrmls0 = self.nrls
+        dev = pts0.device
+
         coo0, off, scale, size = forward_into_grid(pts0, D=D, pad=9)
 
         st0 = torch.sparse_coo_tensor(coo0.long().t(), nrmls0, size=(size,size,size,3)).coalesce()
@@ -67,15 +77,43 @@ class MultiGrid_Solver():
 
         stencil = get_stencil()
         stencil_st = stencil.to_sparse().coalesce()
+        gradStencil = get_grad(stencil)
+        gradStencilSt = gradStencil.permute(1,2,3,0).to_sparse(3).cuda()
 
         # Compute vector field V
         # NOTE: We only ever need the divergence of V, can avoid computing it if needed.
         Vc,Vv = torch.empty((3,0),dtype=torch.long,device=dev), torch.empty((0,3),dtype=torch.float32,device=dev)
-        for D,W in iter_stencil(stencil_st):
-            Vc = torch.cat((Vc, coo - D.view(3,1)), 1)
+        for DD,W in iter_stencil(stencil_st):
+            Vc = torch.cat((Vc, coo - DD.view(3,1)), 1)
             Vv = torch.cat((Vv, W*nrmls2), 0)
         V = torch.sparse_coo_tensor(Vc,Vv, size=(size,size,size,3)).coalesce()
         print(f' - V sizes (uncoalesced {Vc.size(1)}) (final nnz {V._nnz()}={V.indices().size(1)})')
+
+        def get_v_for_lvl(V,d,D):
+            V_ = V.coalesce()
+            C = V_.values().size(-1) if V_.values().ndim == 2 else 1
+            # print(f'{D} -> {d}')
+            assert(d < D)
+            assert(d > 0)
+            '''
+            for dd in range(D,d-1,-1):
+                coos = V_.indices()
+                print(coos[:,0])
+                vals = V_.values()
+                coos >>= 1
+                size_ = 1 << d
+                V_ = torch.sparse_coo_tensor(coos,vals, size=(size_,size_,size_,C)).coalesce()
+            '''
+            coos = V_.indices()
+            # print('input coos\n', coos)
+            vals = V_.values()
+            coos = coos >> (D-d)
+            size_ = 1 << (d)
+            V_ = torch.sparse_coo_tensor(coos,vals, size=(size_,size_,size_,C)).coalesce()
+            # print('output coos\n', V_.indices())
+
+            return V_
+
 
         # Were going to have an Ax = b problem at each scale level.
         # Specifically, it will be Lx = v,
@@ -112,14 +150,43 @@ class MultiGrid_Solver():
 
         NOTE: No: it still requires Ad'd at each level..
         '''
-        minD = 2
-        solvedXs = {}
+
+        # My first impl will use lots of ram...
+        # NOTE: Do I downscale the computed-on-deepest-level-V for each level, OR do I downscale the raw
+        #       data and recompute V on each level?
+        minD = 1
+        bs = {}
+        solved_xs = {}
+        level_transfers = {}
+
+        '''
+        for df in range(minD,D):
+            for dc in range(minD, df):
+                A_fc = extMod.make_level_transfer(df, dc, cooF, cooC, gradStencilSt)
+                level_transfers[(df,dc)] = A_fc
+        '''
+        # for df in range(minD,D):
+        for df in range(D,minD-1,-1):
+            V_df = get_v_for_lvl(V,df,D) if df < D else V
+            cooF = V_df.indices()
+            for dc in range(minD, df):
+                cooC = get_v_for_lvl(V,dc,D).indices()
+                # cooC = get_v_for_lvl(V_df,dc,df).indices()
+                A_fc = extMod.make_level_transfer(df, dc, cooF, cooC, gradStencilSt)
+                print(f' - Computed lvl transfer {df:>2d} -> {dc:>2d} size {A_fc.shape} (original {cooF.shape} {cooC.shape})')
+                level_transfers[(df,dc)] = A_fc
+
         for d in range(minD,D):
+            print(f' - On level {d}')
             for dc in range(minD, d):
-                A_fc = make_level_transfer(d, dc, cooF, cooC, gradStencilSt)
-                bd
+                # A_fc = make_level_transfer(d, dc, cooF, cooC, gradStencilSt)
+                A_fc = level_transfers[(d,dc)]
+                bd -= A_fc @ solved_xs[dc]
+                print(f'\t- retract {dc} -> {d}')
             x = self.solve_level()
             dv = A_fc @ x
+            Vd = get_v_for_lvl(V,d,D)
+            print(f'\t- relax {d}, nnz(V)={Vd._nnz()}')
 
 
 
@@ -163,6 +230,7 @@ def get_level_transfer_explicit(stencilSt, stC, stF):
 
 
 def run_psr(pts0, nrmls0, D=6):
+    '''
     dev = pts0.device
 
     # print(f' - stencil {stencil.shape}')
@@ -178,6 +246,10 @@ def run_psr(pts0, nrmls0, D=6):
 
     stencil = get_stencil()
     stencil_st = stencil.to_sparse().coalesce() # A convenient way to iterate over indices/values
+    '''
+
+    mgs = MultiGrid_Solver(pts0, nrmls0)
+    mgs.run_it(D);
 
 
 
@@ -202,8 +274,8 @@ if __name__ == '__main__':
         nrmls1 = ps / ps.norm(dim=1,keepdim=True)
         pts    = torch.cat((ps0, ps1), 0)
         nrmls  = torch.cat((nrmls0, nrmls1), 0)
-    print(' - pts  :\n', pts)
-    print(' - nrmls:\n', nrmls)
+    # print(' - pts  :\n', pts)
+    # print(' - nrmls:\n', nrmls)
     run_psr(pts, nrmls)
     # viz_conv_of_lap()
     # viz_box()
