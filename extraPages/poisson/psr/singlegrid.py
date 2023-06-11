@@ -78,6 +78,7 @@ def viz_conv_of_lap():
             cv2.imshow(name, arr)
     # cv2.waitKey(0)
     # exit()
+# viz_conv_of_lap()
 
 # Vizualize the box filter (iterated three times) in 2D.
 # The 3d section would suggest that Khazdan 2006 is talking about the regular (non-manhattan) box blur.
@@ -814,4 +815,4 @@ if __name__ == '__main__':
     print(' - nrmls:\n', nrmls)
     run_psr(pts, nrmls)
     # viz_conv_of_lap()
-    # viz_box()
+    viz_box()
