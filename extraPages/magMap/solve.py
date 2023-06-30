@@ -11,11 +11,20 @@ def get_diag(A):
         n = A.size(0)
         S = torch.sparse_coo_tensor(torch.arange(n).unsqueeze_(0).repeat(2,1).to(A.device), torch.ones(n,device=A.device), size=(n,n))
         B = (A * S).coalesce()
-        d = torch.zeros(n, device=A.device, dtype=A.dtype)
-        d[B.indices()[0]] = B.values() # ind[0] = ind[1] so this is correct
-        return d
+        st = torch.sparse_coo_tensor(B.indices()[1:], B.values(), size=(A.size(1),)).coalesce()
+        return st.to_dense()
     else:
         return A.diag()
+
+def get_diag_of_AtA(A):
+    if A.is_sparse:
+        inds = A.indices()
+        vals = A.values() ** 2
+        # Keep second axis (the column id). Combine all rows though!
+        st = torch.sparse_coo_tensor(inds[1:], vals, size=(A.size(1),)).coalesce()
+        return st.to_dense()
+    else:
+        assert False
 
 # Only allows jacobi (diagonal) preconditioning
 def solve_cg(A, b, x0, T, preconditioned=False, debug=False, debugConj=False):
@@ -104,6 +113,51 @@ def solve_cg_AtA(A, b, x0, T, preconditioned=False, debug=False):
         if r.norm() < 1e-7: break
 
     if debug: print(' - residual norm at   end', (A.mT@b-A.mT@(A@x)).norm())
+    if debug: print(' - {} steps in {:.2f}ms'.format(i, (time.time() - st)*1000))
+
+    return x
+
+def solve_cg_AtA_2(A, bbar, x0, T, preconditioned=False, debug=False):
+    x = x0
+    W = A.mT @ (A @ x)
+    r = bbar - A.mT @ (A @ x)
+
+    # FIXME: Test this: instead of forming big/less-sparse A'A, approximate diag(A'A) ~=~ A_ii^2.
+    #        But is this too inaccurate in some cases?
+    diag_AtA = get_diag_of_AtA(A)
+    print('fraction with zero information (bad)',(diag_AtA==0).float().mean())
+    assert (diag_AtA > 0).all()
+    Minv = (1. / (diag_AtA)) if preconditioned else None
+    if preconditioned:
+        print(' - Have Minv', Minv.shape)
+
+    d = r if not preconditioned else Minv * r
+
+    T = min(T, len(bbar)*2)
+
+    if debug: print(' - residual norm at start', (bbar-A.mT@(A@x)).norm())
+    st = time.time()
+
+    # FIXME: Shewchuk avoids r1 by storing the inner product for the next iter (he calls delta_new and delta_old)
+    for i in range(T):
+        # WARNING: Interesting the order of the mult changes accuracy of CG/PCG (and more difference when sparse)
+        # a = ((r@r) if not preconditioned else (r@(Minv*r))) / (d@A.mT@(A@d))
+        a = ((r@r) if not preconditioned else (r@(Minv*r))) / (d@(A.mT@(A@d)))
+
+        x = x + a * d
+        r1 = r - a * (A.mT@(A@d))
+        if not preconditioned:
+            beta = (r1 @ r1) / (r@r)
+            d = r1 + beta * d
+        else:
+            s = Minv*r1
+            beta = (r1 @ s) / (r@(Minv*r))
+            d = s + beta * d
+
+        r = r1
+        if r.norm() < 1e-7: break
+
+    if debug: print(' - residual norm at   end', (bbar-A.mT@(A@x)).norm())
     if debug: print(' - {} steps in {:.2f}ms'.format(i, (time.time() - st)*1000))
 
     return x
