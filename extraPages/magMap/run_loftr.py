@@ -4,10 +4,8 @@ from matplotlib.cm import rainbow
 
 from .solve import *
 from .render import *
-
-# The matching is not good enoug
-
-# LOAD
+sys.path.append(os.getcwd() + '/../')
+from LoFTR_copied.run import run_pair
 
 def get_frames(file, stride=30,N=4):
 # def get_frames(file, stride=18,N=4):
@@ -353,12 +351,9 @@ class Runner:
         print(self.f,self.K)
         self.wh=self.c*2
 
-        if 0:
-            self.kptss, self.dess = extract(self.frames)
-            self.frameGraph = self.matchLinear()
-        else:
-            self.kptss = []
-            self.frameGraph = self.matchLinear_loftr()
+        self.kptss = [None for _ in range(len(self.frames))]
+        self.frameGraph = self.matchLinear_loftr()
+        self.kptss = [k.cpu().numpy().astype(np.float32) for k in self.kptss]
 
         # first_H_info = self.find_largest_homog() # This'll dictate the "ground" plane.
         first_H_info = None
@@ -760,6 +755,7 @@ class Runner:
                 # A = A + torch.eye(J.shape[1]).to_sparse() * 10
                 # dx = solve_cg(A, Jtres, dx0, preconditioned=True, debug=True, T=100)
             print('got dx:\n', dx)
+            dx = dx * .5
             dx_tp = dx[:NC*camTangentSize].view(-1,camTangentSize)
             dx_w = dx[NC*camTangentSize:].view(-1,3)
             for i,dtp in enumerate(dx_tp): x[camStateId[i]:camStateId[i]+7] = box_plus(x[camStateId[i]:camStateId[i]+7], dtp)
@@ -936,66 +932,52 @@ class Runner:
                 cv2.imshow('dimg',dimg)
             else:
                 cv2.imshow('match_{}_{}'.format(a,b),dimg)
-            cv2.waitKey(0)
+            cv2.waitKey(1)
 
             # graph.append((a,b,E,verifiedIdsa,verifiedIdsb))
             graph.append(dict(a=a,b=b,E=E,verifiedIdsa=verifiedIdsa,verifiedIdsb=verifiedIdsb))
         return graph
 
+    def appendGetIds(self, pts, fid):
+        if self.kptss[fid] is None:
+            self.kptss[fid] = pts
+            return torch.arange(len(pts), dtype=torch.int64)
+        else:
+            out = torch.zeros(len(pts),dtype=torch.int64)
+            new = []
+            for i in range(pts.shape[0]):
+                j = torch.argwhere(0==abs(self.kptss[fid] - pts[i]).sum(-1))
+                if j.numel() > 0:
+                    print(j.shape)
+                    out[i] = j.item()
+                else:
+                    out[i] = len(self.kptss[fid]) + len(new)
+                    new.append(pts[i])
+            self.kptss[fid] = torch.cat((self.kptss[fid],torch.stack(new,0)),0)
+        return out
+
     def matchLinear_loftr(self):
         # Match each frame to the next one. If one cannot be matched to the previous, drop it.
 
-        NI = len(self.kptss)
+        NI = len(self.frames)
         h,w = self.frames[0].shape[:2]
 
         graph = []
 
         for a in range(NI-1):
             b = a + 1
+
             dimg = np.hstack((self.frames[a],self.frames[b]))
 
-            kptsa,kptsb = self.kptss[a], self.kptss[b]
-            desa,desb = self.dess[a], self.dess[b]
+            kptsa,kptsb = run_pair(self.frames[a],self.frames[b])
+            # kptsa,kptsb = self.kptss[a], self.kptss[b]
+            # desa,desb = self.dess[a], self.dess[b]
 
             for pt in kptsa: cv2.circle(dimg, (int(  pt[0]),int(pt[1])), 2, (0,255,0), 1)
             for pt in kptsb: cv2.circle(dimg, (int(w+pt[0]),int(pt[1])), 2, (0,255,0), 1)
 
-            ptsa = torch.from_numpy(kptsa[:,:2])
-            ptsb = torch.from_numpy(kptsb[:,:2])
-            desa = torch.from_numpy(desa).cuda()
-            desb = torch.from_numpy(desb).cuda()
-
-            dist = torch.cdist(desa,desb)
-
-            # We have sizes.
-            if kptsa.shape[1] > 2:
-                sza = torch.from_numpy(kptsa[:,2:3])
-                szb = torch.from_numpy(kptsb[:,2:3])
-                size_diff = abs(sza - szb.T)
-                print('size_diff mask mean', (size_diff>70).float().mean())
-                dist += (size_diff > 70).to(dist.device) * 9999
-
-            print(dist.shape)
-            d12,assn12 = dist.topk(2,dim=-1,largest=False)
-            d21,assn21 = dist.topk(2,dim=-2,largest=False)
-            d21,assn21 = d21.T, assn21.T
-
-            idxa = torch.arange(len(ptsa))
-            idxb = assn12[:,0].cpu()
-            if 1:
-                LOWE_RATIO = .9
-                good = (d12[:,0] < LOWE_RATIO*d12[:,1]).cpu()
-            else:
-                # good = (assn12[:,0] == assn21[torch.arange(len(d12),device=assn12.device),0]).cpu()
-                # good = (assn12[:,0] == torch.arange(len(d12),device=assn12.device)[assn21[:,0]]).cpu()
-                pass
-
-            # good = (d[:,0] < .75*d[:,1]).cpu()
-            print(f' - keeping {good.sum()}/{good.numel()} matches')
-
-            # Show all unverified matches
-            sptsa = ptsa[idxa[good]].cpu().numpy()
-            sptsb = ptsb[idxb[good]].cpu().numpy()
+            sptsa = kptsa
+            sptsb = kptsb
 
             dimg0 = np.zeros_like(dimg)
             for apt,bpt in zip(sptsa,sptsb):
@@ -1009,15 +991,19 @@ class Runner:
             # Kptsb = project(homogeneous(sptsb) @ self.K.T)
             # E,mask = cv2.findEssentialMat(sptsa,sptsb, self.K, cv2.RANSAC, .999999, threshold=1)
             # E,mask = cv2.findEssentialMat(sptsa,sptsb, self.K, cv2.RANSAC, .999999, threshold=.02 if a == 0 else .3)
-            E,mask = cv2.findEssentialMat(sptsa,sptsb, self.K, cv2.RANSAC, .9999999, threshold=.5)
-            # E,mask = cv2.findEssentialMat(sptsa,sptsb, self.K, cv2.RANSAC, .9999999, threshold=9.5)
+            # E,mask = cv2.findEssentialMat(sptsa,sptsb, self.K, cv2.RANSAC, .9999999, threshold=.5)
+            E,mask = cv2.findEssentialMat(sptsa,sptsb, self.K, cv2.RANSAC, .9999999, threshold=9.5)
             mask = mask.reshape(-1)
             vptsa = sptsa[mask>0]
             vptsb = sptsb[mask>0]
-            print(f' - verified {mask.sum()}/{good.sum()} kept matches')
+            print(f' - verified {mask.sum()}/{sptsa.shape[0]} kept matches')
 
-            verifiedIdsa = idxa[good][mask>0].cpu().numpy()
-            verifiedIdsb = idxb[good][mask>0].cpu().numpy()
+
+            verifiedIds = torch.arange(mask.shape[0])[mask>0].cpu().numpy()
+            idsInA = self.appendGetIds(torch.from_numpy(kptsa),a)
+            idsInB = self.appendGetIds(torch.from_numpy(kptsb),b)
+            verifiedIdsa = idsInA[mask>0].cpu().numpy()
+            verifiedIdsb = idsInB[mask>0].cpu().numpy()
 
             for apt,bpt in zip(vptsa,vptsb):
                 cv2.line(dimg0,
@@ -1043,6 +1029,7 @@ class Runner:
 with torch.no_grad():
     # run = Runner('/data/chromeDownloads/20230628_164313.mp4')
     # run = Runner('/data/chromeDownloads/20230628_164313.mp4')
-    run = Runner('/data/chromeDownloads/apt')
+    # run = Runner('/data/chromeDownloads/apt')
+    run = Runner('/data/chromeDownloads/apt2')
     # run = Runner('/data/chromeDownloads/20230630_150047.mp4')
 
