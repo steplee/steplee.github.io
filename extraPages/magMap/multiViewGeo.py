@@ -84,7 +84,6 @@ def solve_essential_ransac(ptsa, ptsb, threshold):
 
     a,b = ptsa[ids], ptsb[ids]
 
-    print(a.shape,b.shape)
     outer = (a.view(G, M, 3, 1) @ b.view(G, M, 1, 3)).view(G, M, 9)
     U,S,Vt = torch.linalg.svd(outer)
 
@@ -116,13 +115,14 @@ def solve_essential_ransac(ptsa, ptsb, threshold):
     mask1 = valid[best]
     E1 = E[best]
 
-    # Now solve again, but no more repetitions.
+    # Now solve again, one last time.
     E2 = solve_essential(ptsa[mask1>0], ptsb[mask1>0])
     blines = (E2.view(1, 3, 3) @ ptsa.view(NN, 3, 1)).view(NN, 3)
     alines = (E2.view(1, 3, 3).permute(0, 2, 1) @ ptsb.view(1, NN, 3, 1)).view(NN, 3)
     errs  = (abs(ptsb.view(NN, 1, 3) @ blines.view(NN,3,1)).view(NN) / blines[:, :2].norm(dim=-1) \
           +  abs(ptsa.view(NN, 1, 3) @ alines.view(NN,3,1)).view(NN) / alines[:, :2].norm(dim=-1)) * .5
     mask2 = (errs < threshold).int()
+    print(' - solve essential inliers {}/{}/{}'.format(mask2.sum().item(), mask1.sum().item(), NN))
 
     return E1, E2, mask1, mask2
 
@@ -170,8 +170,47 @@ def triangulate_points(PA,PB,ptsa,ptsb):
     print('triangulated rmse in B:', ((pptsb - ptsb[:,:2])**2).sum(1).mean().sqrt().item())
     return pts
 
-def solve_pnp(self):
-    pass
+# The Lu algorithm
+# Can definitely take a couple of iters if starting R matrix is not close.
+# TODO: Take starting params.
+# TODO: Batch and ransac-ify.
+def solve_pnp(oo, p, K):
+    o = homogeneous(oo)
+    n = o.size(0)
+    v = o @ torch.linalg.inv(K)
+    V = (v.view(n, 3,1) @ v.view(n, 1,3) / v.pow(2).sum(1).view(n,1,1)).view(n,3,3)
+
+    R = torch.eye(3)
+    R[1,1] = -1
+    R[2,2] = -1
+    t = torch.zeros(3)
+    # e = (project((K.view(1,3,3) @ (R.view(1,3,3) @ p.view(n,3,1) + t.view(1,3,1)))[...,0]) - oo).pow(2).sum(-1).mean().sqrt().item()
+
+    I = torch.eye(3).view(1,3,3)
+    for iter in range(10):
+        t = torch.linalg.inv(I[0] - V.mean(0)) @ ((V - I) @ R.view(1, 3, 3) @ p.view(n, 3, 1)).mean(0)
+
+        q = (V @ (R.view(1,3,3) @ p.view(n,3,1) + t.view(1,3,1))).view(n,3)
+        qp = q - q.mean(0,keepdim=True)
+        pp = p - p.mean(0,keepdim=True)
+        M = (qp.view(n,3,1) @ pp.view(n,1,3)).sum(0)
+        U,S,Vt=torch.linalg.svd(M)
+        R = Vt.mT @ U.mT
+
+        e = (project((K.view(1,3,3) @ (R.view(1,3,3) @ p.view(n,3,1) + t.view(1,3,1)))[...,0]) - oo).pow(2).sum(-1).mean().sqrt().item()
+        print(e)
+    print(R,t,e)
+def test_pnp():
+    p = torch.FloatTensor((
+        -1,-1, 1,
+         1,-1, 1,
+         1, 1, 1,
+        -1, 1, 1,)).reshape(-1,3)
+    o = p[:, :2] + .05
+    K = torch.eye(3)
+    solve_pnp(o,p,K)
+test_pnp(); exit()
+
 
 
 
@@ -298,8 +337,8 @@ def test_ess_2():
     else:
         tK = torch.from_numpy(K)
         tKi = torch.linalg.inv(tK)
-        t_ptsa3 = project(homogeneous(torch.from_numpy(ptsa1)) @ tKi.mT)
-        t_ptsb3 = project(homogeneous(torch.from_numpy(ptsb1)) @ tKi.mT)
+        t_ptsa3 = project(homogeneous(torch.from_numpy(ptsa1)) @ tKi.mT).cuda()
+        t_ptsb3 = project(homogeneous(torch.from_numpy(ptsb1)) @ tKi.mT).cuda()
         # t_ptsa3 = project(homogeneous(torch.from_numpy(ptsa2)) @ tKi.mT) # WARNING:
         # t_ptsb3 = project(homogeneous(torch.from_numpy(ptsb2)) @ tKi.mT)
         # t_ptsa3,t_ptsb3 = t_ptsa3.cuda(), t_ptsb3.cuda()
@@ -316,7 +355,9 @@ def test_ess_2():
 
 
 
+
     cv2.waitKey(0)
 
-# test_ess_1()
-test_ess_2()
+with torch.no_grad():
+    # test_ess_1()
+    test_ess_2()
