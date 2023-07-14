@@ -174,17 +174,17 @@ def triangulate_points(PA,PB,ptsa,ptsb):
 # Can definitely take a couple of iters if starting R matrix is not close.
 # TODO: Take starting params.
 # TODO: Batch and ransac-ify.
-def solve_pnp(oo, p, K):
+def solve_pnp(oo, p, K, R=None, t=None):
     o = homogeneous(oo)
     n = o.size(0)
     v = o @ torch.linalg.inv(K)
     V = (v.view(n, 3,1) @ v.view(n, 1,3) / v.pow(2).sum(1).view(n,1,1)).view(n,3,3)
 
-    R = torch.eye(3)
-    R[1,1] = -1
-    R[2,2] = -1
-    t = torch.zeros(3)
-    # e = (project((K.view(1,3,3) @ (R.view(1,3,3) @ p.view(n,3,1) + t.view(1,3,1)))[...,0]) - oo).pow(2).sum(-1).mean().sqrt().item()
+    if R is None: R = torch.eye(3,device=oo.device)
+    if t is None: t = torch.zeros(3,device=oo.device)
+
+    e = (project((K.view(1,3,3) @ (R.view(1,3,3) @ p.view(n,3,1) + t.view(1,3,1)))[...,0]) - oo).pow(2).sum(-1).mean().sqrt().item()
+    print(e)
 
     I = torch.eye(3).view(1,3,3)
     for iter in range(10):
@@ -193,13 +193,13 @@ def solve_pnp(oo, p, K):
         q = (V @ (R.view(1,3,3) @ p.view(n,3,1) + t.view(1,3,1))).view(n,3)
         qp = q - q.mean(0,keepdim=True)
         pp = p - p.mean(0,keepdim=True)
-        M = (qp.view(n,3,1) @ pp.view(n,1,3)).sum(0)
+        M = (qp.view(n,3,1) @ pp.view(n,1,3)).mean(0)
         U,S,Vt=torch.linalg.svd(M)
         R = Vt.mT @ U.mT
 
         e = (project((K.view(1,3,3) @ (R.view(1,3,3) @ p.view(n,3,1) + t.view(1,3,1)))[...,0]) - oo).pow(2).sum(-1).mean().sqrt().item()
         print(e)
-    print(R,t,e)
+
 def test_pnp():
     p = torch.FloatTensor((
         -1,-1, 1,
@@ -209,7 +209,7 @@ def test_pnp():
     o = p[:, :2] + .05
     K = torch.eye(3)
     solve_pnp(o,p,K)
-test_pnp(); exit()
+# test_pnp(); exit()
 
 
 
