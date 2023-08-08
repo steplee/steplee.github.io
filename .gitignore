@@ -7,3 +7,6 @@ posts/private/
 node_modules
 extraPages/**/*bundled.js
 package-lock.json
+*.o
+*.a
+*.so
