@@ -1,3 +1,8 @@
+```meta
+title: Sending Data With Android and USB
+date: 2022/07/14
+tags: android, usb
+```
 # Sending Data With Android and USB
 
 Despite being a Linux user for 10 years and lesiurely reading books on OSes, I have never really had to look deep into any kernel topic beyond a basic level.

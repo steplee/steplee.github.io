@@ -1,0 +1,39 @@
+
+.c_kw {
+    color: #aca;
+    font-weight: bold;
+}
+.c_op {
+    color: #99f;
+}
+.c_vr {
+    color: #f99;
+}
+.c_ty {
+    color: #99e;
+}
+.c_st {
+    color: olive;
+}
+.c_fi {
+    color: #e88;
+}
+.c_nl {
+    color: orange;
+}
+.c_co {
+    color: #77a;
+}
+.c_pp {
+    color: #97a;
+}
+.c_mo {
+    color: #a7e;
+}
+.code {
+    margin: 10px;
+    #background-color: #222;
+    background-color: rgba(10, 4, 90, 0.1);
+    #filter: brightness(170%);
+    #backdrop-filter: brightness(170%);
+}

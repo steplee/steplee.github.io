@@ -1,0 +1,59 @@
+<html><head>
+    <link rel="preconnect" href="https://fonts.googleapis.com"> <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Jura&family=Roboto:wght@400&display=swap" rel="stylesheet">
+
+    <script type="text/javascript" src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js" async></script>
+
+    <link rel="stylesheet" href="../res/boostrap.darkly.css">
+    <link rel="stylesheet" href="../res/main.css">
+    <link rel="stylesheet" href="../res/code.css">
+</head>
+<body>
+    
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+    <div class="container-fluid">
+        <a class="navbar-brand" href="#">Navbar</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarColor02" aria-controls="navbarColor02" aria-expanded="false" aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon"></span>
+        </button>
+
+        <div class="collapse navbar-collapse" id="navbarColor02">
+        <ul class="navbar-nav me-auto">
+            <li class="nav-item">
+            <a class="nav-link active" href="../index.html">Blog
+                <span class="visually-hidden">(current)</span>
+            </a>
+            </li>
+            <li class="nav-item">
+            <a class="nav-link" href="https://github.com/steplee">GitHub</a>
+            </li>
+
+            <!-- This is not working -->
+            <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" data-bs-toggle="dropdown" href="#" role="button" aria-haspopup="true" aria-expanded="false" id="dropdownMenuButton1" data-toggle="dropdown1">Links</a>
+            <div class="dropdown-menu" aria-labelledby="dropdownMenuButton1" id="dropdown1">
+                <a class="dropdown-item" href="https://www.shadertoy.com/user/stephenl7797">ShaderToy</a>
+                <a class="dropdown-item" href="https://www.shadertoy.com/user/stephenl7797">ShaderToy</a>
+            </div>
+            </li>
+
+        </ul>
+        </div>
+    </div>
+    </nav>
+
+
+    <div id="mainImage"></div>
+
+    <div class="container">
+        <br>
+<h1>Expanding Files with <span class="ticked">fallocate</span></h1><p>I discovered a new trick the other week. You can insert wholes into files using <span class="ticked">fallocate</span> with the <span class="ticked">falloc_fl_insert_range</span> mode. The amazing catch is that it even works with <span class="ticked">mmap</span>ed files, and no programmer synchronization nor book-keeping needs to be done!</p><br>
+<p>I decided to exploit this trick to make my large tiled image library/format simpler. Previously it used LMDB and stored georefenced imagery on one base level, plus optionally overviews in seperate LMDB <span class="ticked">db</span>s (but in the same file). The 'overviews' are downsampled versions of the base image support (these are like disk-based mip-maps -- if we want to access a large area of the base image, we'd need to sample huge numbers of pixels and then subsample them). Using LMDB worked pretty well, but I when creating the files I had to use multiple transactions so that (I assume) LMDB could rebalance the B+ tree. And I always like to try to implement a simpler approach when I can.</p><br>
+<p>To that effect, I wanted to just have a sorted array of keys and a binary blob of values that the keys know how to index into. Everything is flat and contiguous here. But we do not know the number of tiles or the required size of the binary blob until we visit all tiles and encode them, and we using a two-phase approach is unattractive.</p><p>We can do something like a standard expanding array (<span class="ticked">std::vector</span>) and double the capacity of our arrays when we out grow them. Doing this in memory requires copying the old elements a newly allocated, larger array. Doing this on disk would be way too slow and use require 2x the free space.</p><p>Here is where the use of <span class="ticked">fallocate</span> comes in.</p><p>If we need to expand the <span class="ticked">keys</span> buffer, we use <span class="ticked">fallocate</span> to insert a range at the end of it, just before the beginning of the <span class="ticked">vals</span> buffer.</p><p>If we need to expand the <span class="ticked">vals</span> buffer, we just extend the file.</p><p>We just have to fix the pointers and lengths, and that's it!</p><br>
+<p>In actuality, the <span class="ticked">keys</span> buffer is actually also storing <span class="ticked">k2vs</span> data, which tells the key the offset into the <span class="ticked">values</span> array that it's value is located.</p><p>This is valid because the writer application can do the writes in order. Unordered writes would not work -- the best bet would be a B+ tree. I actually implemented a B+ tree to start off this project, but then I discovered the trick and decided to go with that.</p><br>
+<p>The relevant code is <a href="https://github.com/steplee/frast/blob/v2.0/frast2/flat/flat_env.cc#L198">here</a></p>
+    </div>
+
+</body>
+</html>
