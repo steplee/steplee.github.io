@@ -1,0 +1,57 @@
+<html>
+	<head>
+		<script src="./index.bundle.js"></script>
+		<style>
+				body {
+					background-color: #080808;
+					display: flex;
+				}
+				h1   {color: blue;}
+				p    {color: #ddd;}
+
+				#controlsContainer {
+					flex-basis: 412px;
+				}
+
+				.slidecontainer {
+					width: 100%;
+				}
+
+				.slider {
+					-webkit-appearance: none;
+					width: 100%;
+					height: 25px;
+					background: #d3d3d3;
+					outline: none;
+					opacity: 0.7;
+					-webkit-transition: .2s;
+					transition: opacity .2s;
+				}
+
+				.container {
+				}
+
+				canvas {
+					width: 512;
+					height: 512;
+				}
+
+		</style>
+
+	</head>
+	<body>
+		<h1>Hi</h1>
+
+		<div id="controlsContainer">
+			<textarea id="model">
+			</textarea>
+			<div class="slidecontainer">
+				<input type="range" min="1" max="100" value="10" class="slider" id="selectedFrame">
+			</div>
+		</div>
+
+		<div id="container" tabindex="0">
+		</div>
+	</body>
+</html>
+

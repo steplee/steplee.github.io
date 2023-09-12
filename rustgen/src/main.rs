@@ -1,5 +1,6 @@
 #![allow(unreachable_code)]
 #![allow(unused)]
+#![allow(non_snake_case)]
 
 use cc;
 mod syntax_highlight;

@@ -110,6 +110,8 @@ class ExampleRendererBase(SingletonApp):
         if key == 's': self.accTrans[2] = 1
         if key == 'a': self.accTrans[0] = -1
         if key == 'd': self.accTrans[0] = 1
+        if key == 'e': self.accTrans[1] = -1
+        if key == 'r': self.accTrans[1] = 1
         if key == 'f': self.addSign *= -1
         self.lastKey = key
 

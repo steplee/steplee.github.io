@@ -396,7 +396,9 @@ class Sampler:
             all_xs = []
             all_skelPts = []
 
-            for img in imgs0:
+            for imgi, img in enumerate(imgs0):
+                if imgi % 10 == 0:
+                    print(f' - Image {imgi} / {len(imgs0)}')
                 x = self.basePose.view(1,S) + torch.randn(B,S,device=self.basePose.device)
                 out, vimg = run_model_and_viz(self.model2d, img, show=False)
                 img[:] = vimg
@@ -423,13 +425,16 @@ class Sampler:
 
 
                 NOISE_WEIGHT = .3
-                MODEL_WEIGHT = .8
+                MODEL_WEIGHT = .9
 
                 print(' - Doing Reverse Diffusion Process...')
 
                 for i in range(T):
                     ts  = torch.cuda.FloatTensor([1. - i/T]).view(1).repeat(B)
                     sig = all_sigs[i].view(1).repeat(B)
+                    # print(x.shape, ts.shape, z.shape)
+                    ts = ts.view(-1,1)
+                    z = z.flatten(1)
                     s = self.model3d(x,ts,z)
 
                     new_randomness = torch.randn_like(s) * sig.view(B,1) * NOISE_WEIGHT

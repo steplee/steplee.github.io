@@ -65,7 +65,7 @@ impl<'a,'b> StreamUse<'a,'b> {
     fn from(strm: &'b mut Stream<'a>) -> StreamUse<'a,'b> {
         let j = strm.i;
         // let is_beginning_of_line_ = (j == 0) || (strm.s[j..j+1].chars().next().unwrap_or('.') == '\n');
-        return StreamUse{strm:strm, j};
+        return StreamUse{strm, j};
     }
 
     fn commit(&mut self) -> () {

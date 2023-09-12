@@ -186,6 +186,8 @@ def test_data_struct():
         1, 8,8, 0,
         2, 9,9, 1,
         )).view(-1,4)
+
+    # ACTUALLY: no need for this sparse tensor, `allmatches` rows must be unique anyways...
     img_matches_st = torch.sparse_coo_tensor(allmatches.t(), torch.ones(allmatches.size(0),dtype=torch.long)).coalesce()
     print('img_matches_st:\n',img_matches_st)
 
@@ -227,13 +229,61 @@ def test_data_struct():
     '''
     Okay so we store the `allpts` and `allmatches` __dense__ tensors like above. We can dynamically add to them.
 
-    Then we create the img_matches_st sparse tensor when ready for graph optimization.
+    Then we create the `img_matches_st` sparse tensor when ready for graph optimization.
     To construct sparse jacobian blocks, we further need the `state_matches_all_st`.
     This nearly gives the structure of the jacobian, we just need to account for camera/point offset and also camera/point sizes being >1.
+
+    The `allpts` tensor stores <img, y, x> as a combined 64-bit int. Plenty of bits there.
+    The `allmatches` tensor stores <img, y, x, parity> as a combined 64-bit int. The parity bit must be zero or one.
+    (I'm speaking of 64-bit ints because torch combines all dims into one before sorting, in coalesce())
+
+    Reflecting: I don't think that `allmatches` needs to be sparse-ified. `allpts` does though.
     '''
+    matches_all_gid_vals = matches_all_gid.values()
+    ms_cams, ms_apts, ms_bpts = matches_all_gid.indices()
 
     exit()
-test_data_struct()
+
+def test_data_struct2():
+    from torch.utils.cpp_extension import load
+    graphUtils = load('graphUtils', sources=['magMap/graph.cu'], extra_cuda_cflags=['--extended-lambda', '-g'], extra_cflags=['-g'])
+
+    allmatches = torch.LongTensor((
+        0, 5,5, 0,
+        1, 4,4, 0,
+        0, 8,8, 1,
+        1, 8,8, 1,
+
+        1, 8,8, 2,
+        2, 9,9, 2,
+        )).view(-1,4)
+
+    # ACTUALLY: no need for this sparse tensor, `allmatches` rows must be unique anyways...
+    img_matches_st = torch.sparse_coo_tensor(allmatches.t(), torch.ones(allmatches.size(0),dtype=torch.long)).coalesce()
+    print('img_matches_st:\n',img_matches_st)
+
+    inds = img_matches_st.indices().t()
+
+    # NOTE: Original values are disregarded, we have to coalesce before using arange.
+    pts_st = torch.sparse_coo_tensor(inds[...,0:3].t(), torch.zeros(inds.size(0), dtype=torch.long)).coalesce()
+    pts_st.values().copy_(torch.arange(pts_st.values().size(0), dtype=torch.long))
+    print('pts_st:\n',pts_st)
+
+    state_matches_all = inds[...,0:3]
+    state_matches_all_st = torch.sparse_coo_tensor(state_matches_all.t(), torch.ones(state_matches_all.size(0),dtype=torch.long), size=pts_st.size()).coalesce()
+    print('state_matches_all_st:\n',state_matches_all_st)
+
+    # FIXME: This is not okay. I'll need custom extension with thrust::lower_bound.
+    matches_all_gid = (pts_st * state_matches_all_st).coalesce()
+    print('matches_all_gid:\n',matches_all_gid)
+    matches_all_gid_vals = matches_all_gid.values()
+    matches_all_gid_cams = matches_all_gid.indices()[0] # etc...
+
+    graphUtils.make_graph(allmatches)
+
+    exit()
+
+test_data_struct2()
 
 with torch.no_grad():
     # run = Runner('/data/chromeDownloads/20230628_164313.mp4')
