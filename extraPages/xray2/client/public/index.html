@@ -6,11 +6,22 @@
 					background-color: #080808;
 					display: flex;
 				}
-				h1   {color: blue;}
+				h1   {color: #aae; text-align: center;}
 				p    {color: #ddd;}
+
 
 				#controlsContainer {
 					flex-basis: 412px;
+					display: block;
+					color: #ddd;
+					background-color: #111;
+				}
+				.controlRow {
+					display: flex;
+					margin: 5px;
+				}
+				.controlName {
+					flex-basis: 120px;
 				}
 
 				.slidecontainer {
@@ -20,15 +31,31 @@
 				.slider {
 					-webkit-appearance: none;
 					width: 100%;
-					height: 25px;
-					background: #d3d3d3;
+					background: #333;
 					outline: none;
 					opacity: 0.7;
 					-webkit-transition: .2s;
 					transition: opacity .2s;
 				}
 
+				input[type='range']::-webkit-slider-runnable-track {
+				}
+				input[type='range']::-webkit-slider-thumb {
+					-webkit-appearance: none; /* Override default look */
+					appearance: none;
+					background-color: #1cf5ff;
+					height: 1rem;
+					width: 5px;   
+				}
+
 				.container {
+				}
+
+				textarea {
+					width: 100%;
+					background-color: #222;
+					color: white;
+					border-color: #333;
 				}
 
 				canvas {
@@ -36,21 +63,95 @@
 					height: 512;
 				}
 
+				.overTextContainer {
+					position: relative;
+				}
+				.overText {
+					position: absolute;
+					font-size: .75em;
+					color: inherit;
+				}
+				#overTextposePrior {
+					color: yellow;
+				}
+				#overTextcoco {
+					color: green;
+				}
+
+				.controlRow button {
+					width: 100%;
+					background: #222;
+					color: #ccc;
+					border: none;
+					transition: 0.1s;
+					margin-left: 2px;
+					margin-right: 2px;
+				}
+				.controlRow button:hover {
+					background-color: #444;
+					color: #fff;
+				}
+				.controlRow button:active {
+					background-color: #5af;
+					color: #100;
+				}
+
+				form {
+					margin: 5px;
+					border: solid 1px;
+					border-color: #333;
+				}
+
 		</style>
 
 	</head>
 	<body>
-		<h1>Hi</h1>
+
 
 		<div id="controlsContainer">
-			<textarea id="model">
-			</textarea>
-			<div class="slidecontainer">
-				<input type="range" min="1" max="100" value="10" class="slider" id="selectedFrame">
+			<h1>Xray Viz</h1>
+			<form id="theForm">
+				<div class="controlRow">
+					<div class="controlName">modelName</div>
+					<textarea name="model" id="formModel" rows="1"></textarea>
+				</div>
+				<div class="controlRow">
+					<div class="controlName">videoName</div>
+					<textarea name="videoName" id="formVideoName" rows="1"></textarea>
+				</div>
+				<div class="controlRow">
+					<div class="controlName">N</div>
+					<textarea name="N" id="formN" rows="1">1</textarea>
+				</div>
+			</form>
+			<div class="controlRow">
+				<div class="controlName"></div>
+				<button id="refresh">Refresh</button>
+			</div>
+			<div class="controlRow">
+				<div class="controlName">time</div>
+				<div class="slidecontainer">
+					<input type="range" min="0" max="100" value="10" class="slider" id="selectedFrame">
+				</div>
+			</div>
+			<div class="controlRow">
+				<div class="controlName">idx</div>
+				<div class="slidecontainer">
+					<input type="range" min="0" max="100" value="10" class="slider" id="selectedIdx">
+				</div>
+			</div>
+			<div class="controlRow">
+				<div class="controlName">labels</div>
+				<input type="checkbox" id="showLabels" name="showLabels">
+			</div>
+
+			<div id="showButtons">
 			</div>
 		</div>
 
 		<div id="container" tabindex="0">
+			<div id="overTextTop">
+			</div>
 		</div>
 	</body>
 </html>

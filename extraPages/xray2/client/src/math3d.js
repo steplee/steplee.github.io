@@ -190,6 +190,7 @@ function FreeCamera(element) {
 	this.shift = false;
 	this.alt = false;
 	this.keys = [];
+	this.lastMovement = new Date().getTime();
 
 	// element.addEventListener('mousemove', this.handleMouseMove)
 	// element.addEventListener('mousedown', this.handleMouseDown)
@@ -241,6 +242,8 @@ FreeCamera.prototype.handleMouse = function(e) {
 	this.lastX = e.offsetX;
 	this.lastY = e.offsetY;
 	// console.log(this, this.dx, this.lastX,this.keys);
+
+	this.lastMovement = new Date().getTime();
 }
 FreeCamera.prototype.handleClear = function(e) {
 	this.lastX = undefined;
@@ -267,6 +270,8 @@ FreeCamera.prototype.handleKeyUp = function(e) {
 	if (idx >= 0) {
 		this.keys.splice(idx,1);
 	}
+
+	this.lastMovement = new Date().getTime();
 }
 FreeCamera.prototype.handleKeyDown = function(e) {
 	// console.log(e);
@@ -279,16 +284,22 @@ FreeCamera.prototype.handleKeyDown = function(e) {
 		return;
 	}
 
-	if (!e.repeat)
-		this.keys.push(e.key);
+	if (!e.repeat) {
+		let idx = this.keys.indexOf(e.key);
+		if (idx == -1)
+			this.keys.push(e.key);
+	}
+
+	this.lastMovement = new Date().getTime();
 }
 
 FreeCamera.prototype.computeMatrices = function(ctx) {
 	const n = .01;
+	const f = 15.01;
 	// const s = Math.tan(this.fov*.5*3.141/180);
 	const s = .7;
 	let u = n * s * (ctx.viewportWidth / ctx.viewportHeight), v = n * s;
-	this.proj = frustum(n, 4.5, -u,u, v,-v);
+	this.proj = frustum(n, f, -u,u, v,-v);
 
 	let VI = qmatrix(this.q);
 	VI[3*4+0] = this.t[0];
@@ -318,7 +329,7 @@ FreeCamera.prototype.step = function(ctx) {
 	let v = this.v;
 
 	// console.log(this.keys);
-	const speed = 12.0;
+	const speed = 142.0;
 	let a = [
 		speed * ((this.keys.indexOf("d") != -1) ?  1 : (this.keys.indexOf("a") != -1) ? -1 : 0),
 		speed * ((this.keys.indexOf("q") != -1) ? -1 : (this.keys.indexOf("e") != -1) ?  1 : 0),
@@ -326,17 +337,17 @@ FreeCamera.prototype.step = function(ctx) {
 	];
 	a = topLeft_mtv_3(this.view, a);
 
-	if (1) {
+	if (0) {
 		let drag_= 19.5 * norm(v);
 		let drag = Math.min(.99/dt, drag_);
 		a[0] -= drag * v[0];
 		a[1] -= drag * v[1];
 		a[2] -= drag * v[2];
 	} else {
-		let drag_ = 20.1 * dt;
-		a[0] -= drag_ * v[0] * Math.abs(v[0]);
-		a[1] -= drag_ * v[1] * Math.abs(v[1]);
-		a[2] -= drag_ * v[2] * Math.abs(v[2]);
+		let drag_ = Math.min(.99/dt, 22.1);
+		a[0] -= drag_ * v[0];
+		a[1] -= drag_ * v[1];
+		a[2] -= drag_ * v[2];
 	}
 
 	v[0] = v[0] + a[0]*dt;
@@ -349,6 +360,10 @@ FreeCamera.prototype.step = function(ctx) {
 	t[2] = t[2] + v[2]*dt;
 
 	this.computeMatrices(ctx);
+
+	if (Math.abs(a[0]) > 1e-8 || Math.abs(a[1]) > 1e-8 || Math.abs(a[2]) > 1e-8 || this.dx != 0 || this.dy != 0)
+		this.lastMovement = new Date().getTime();
+
 	this.dx = 0;
 	this.dy = 0;
 }

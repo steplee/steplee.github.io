@@ -1,5 +1,5 @@
-from .skeleton import skeleton
-from ...est2d.run import FasterRcnnModel, get_resnet50, run_model_and_viz, get_coco_skeleton
+from .skeleton import Skeleton
+# from ...est2d.run import FasterRcnnModel, get_resnet50, run_model_and_viz, get_coco_skeleton
 
 import torch, torch.nn, torchvision, numpy as np
 import cv2
@@ -47,6 +47,7 @@ def get_coco_skeleton():
             (skeletonVerticesInv[a],skeletonVerticesInv[b]) for a,b in \
                     zip(skeletonIndices_[0::2], skeletonIndices_[1::2],)
     ]
+    skeletonIndices = np.stack(skeletonIndices).reshape(-1)
 
     return Skeleton(skeletonIndices, skeletonVerticesInv)
 
@@ -72,13 +73,6 @@ def get_resnet50():
         model.weights = weights
 
     return model
-
-def run_model(model, img):
-    with torch.no_grad():
-        x = torch.from_numpy(img).cuda().float().div_(255).unsqueeze_(0).permute(0,3,1,2)
-        x = model.weights.transforms()(x)
-        return model(x)
-
 
 class FasterRcnnModel():
     def __init__(self, model):
@@ -106,7 +100,7 @@ class FasterRcnnModel():
 
     def __call__(self, x): return self.forward(x)
 
-    def show_viz(self, img, boxes, keypointss, kscores, show=True):
+    def make_viz(self, img, boxes, keypointss, kscores, show=False):
         for box in boxes.cpu().numpy():
             pt1 = box[:2].astype(int)
             pt2 = box[2:].astype(int)
@@ -155,4 +149,7 @@ if __name__ == '__main__':
     m = get_resnet50()
     m = FasterRcnnModel(m)
 
-    run_model_and_viz(img)
+    # run_model_and_viz(img)
+    rd = m(img)[0]
+    print(list(rd.keys()))
+    m.make_viz(img, rd["boxes"], rd["keypoints"], rd["keypoints_scores"], show=True)

@@ -93,6 +93,7 @@ class PosePriorDataset(Dataset):
         self.inds = torch.from_numpy(d['inds'].astype(np.int16))
         self.joints = {k:i*1 for (i,k) in enumerate(d['joints'])}
         self.doubleDataset = doubleDataset
+        assert (not self.doubleDataset), "I think that's invalid for conditional data?"
 
         if CENTER_DATASET:
             print(' - Centering dataset ...')

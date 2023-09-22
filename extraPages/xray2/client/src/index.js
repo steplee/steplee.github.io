@@ -1,6 +1,6 @@
 import regl_ from "regl";
 import math from "./math3d.js";
-import {create_dummy_skeleton, Skeleton} from "./skeleton.js";
+import {create_dummy_skeleton, create_skeleton_from_json, Skeleton} from "./skeleton.js";
 
 export function hi() {
 	console.log('hi2')
@@ -95,21 +95,39 @@ function create_skeleton(regl) {
 }
 */
 
-function get_skeletons() {
-	fetch('/getSkeletons')
+function get_skeletons(form) {
+	let formData = undefined;
+	if (form) {
+		let d = new FormData(form);
+		// console.log(d)
+		formData = JSON.stringify(Object.fromEntries(d));
+		// formData = new FormData(form);
+	}
+	console.log('formData', formData);
+
+	fetch('/skeleton', {method: 'post', body: formData})
 		.then((response) => response.json())
 		.then((d) => {
-			setSkeletons(d)
+			console.log(d)
+			let o = {};
+			for (let skelName in d.skeletons) {
+				o[skelName] = create_skeleton_from_json(window.app.regl, skelName, d.skeletons[skelName]);
+			}
+			console.log("setting new skeletons", o);
+			window.app.setSkeletons(o)
 		});
 
 	// window.app.setSkeletons({
 		// dummy: create_dummy_skeleton(window.app.regl)
 	// });
+
 }
 function get_frame(i) {
 }
 
 function App(regl) {
+		this.sleepTime = 16; // 60 fps default.
+
 		window.app = this;
 		this.regl = regl;
 		this.setupScene = regl({
@@ -122,25 +140,72 @@ function App(regl) {
 
 		this.cam = new math.FreeCamera(container);
 		this.axes = create_axes(regl);
+		this.showLabels = false;
+
 		this.skeletons = {};
+		this.maxT = 1;
+		this.maxN = 1;
+		this.curT = 0;
+		this.curN = 0;
+
+		let sliderSelectedFrame = document.getElementById('selectedFrame');
+		let sliderSelectedIdx = document.getElementById('selectedIdx');
+		let checkboxShowLabels = document.getElementById('showLabels');
+		let buttonRefresh = document.getElementById('refresh');
+		let theForm = document.getElementById('theForm');
+		checkboxShowLabels.checked = this.showLabels;
+		checkboxShowLabels .addEventListener('change', (a) => {this.showLabels = a.target.checked});
+		sliderSelectedFrame.addEventListener('input', (a) => {this.curT = a.target.value});
+		sliderSelectedIdx  .addEventListener('input', (a) => {this.curN = a.target.value});
+		buttonRefresh      .addEventListener('click', (a) => {get_skeletons(theForm)});
 
 
+		let this_ = this;
 		this.setSkeletons = function(d) {
-			this.skeletons = d;
+			this_.skeletons = d;
+			this.maxT = 1;
+			this.maxN = 1;
+			for (let skelName in d) {
+				this.maxT = Math.max(this.maxT, d[skelName].T);
+				this.maxN = Math.max(this.maxN, d[skelName].N);
+			}
+			sliderSelectedFrame.max = this.maxT-1;
+			sliderSelectedIdx.max = this.maxN-1;
+			this.curT = Math.min(this.curT, this.maxT);
+			this.curN = Math.min(this.curN, this.maxN);
+			sliderSelectedFrame.value = this.curT;
+			sliderSelectedFrame.value = this.curN;
 		}
 
 		this.renderScene = function(ctx) {
 			let cam = this.cam;
 			let this_ = this;
 
+			// Slow down render rate if inactive.
+			// NOTE: Only issue here is that we must wait upto the longest-slept time before seeing new update!
+			/*
+			if ((new Date().getTime() - cam.lastMovement) > 12000) {
+				this.sleepTime = 2000;
+			} else if ((new Date().getTime() - cam.lastMovement) > 5000) {
+				this.sleepTime = 1000;
+			} else if ((new Date().getTime() - cam.lastMovement) > 2000) {
+				this.sleepTime = 250;
+			} else if ((new Date().getTime() - cam.lastMovement) > 1000) {
+				this.sleepTime = 60;
+			} else {
+				this.sleepTime = 14;
+			}
+			*/
+
 			this.setupScene({
 				cam: cam
 			}, function(ctx,props) {
 				cam.step(ctx);
-				this_.axes();
 
-				for (let skel in this_.skeletons)
-					this_.skeletons[skel].draw();
+				this_.axes();
+				for (let skel in this_.skeletons) {
+					this_.skeletons[skel].draw(ctx, {timeIdx: this_.curT, showLabels: this_.showLabels});
+				}
 			});
 		}
 
@@ -156,5 +221,16 @@ window.addEventListener('load', () => {
 
 	// let skel = create_dummy_skeleton(regl);
 
-	let tick = regl.frame((ctx) => app.renderScene(ctx));
+	window.tick = regl.frame((ctx) => app.renderScene(ctx));
+	// window.tick = setTimeout(function() {
+	// });
+	/*
+	function draw_regl_cb() {
+		let ctx = regl.contextState
+		app.renderScene(ctx);
+		// console.log(app.sleepTime);
+		setTimeout(draw_regl_cb, app.sleepTime);
+	}
+	window.tick = setTimeout(draw_regl_cb);
+	*/
 });
