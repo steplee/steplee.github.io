@@ -1,0 +1,90 @@
+<html><head>
+    <link rel="preconnect" href="https://fonts.googleapis.com"> <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Jura&family=Roboto:wght@400&display=swap" rel="stylesheet">
+
+    <script type="text/javascript" src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js" async></script>
+
+    <link rel="stylesheet" href="../res/boostrap.darkly.css">
+    <link rel="stylesheet" href="../res/main.css">
+    <link rel="stylesheet" href="../res/code.css">
+</head>
+<body>
+    
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+    <div class="container-fluid">
+        <a class="navbar-brand" href="#">Navbar</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarColor02" aria-controls="navbarColor02" aria-expanded="false" aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon"></span>
+        </button>
+
+        <div class="collapse navbar-collapse" id="navbarColor02">
+        <ul class="navbar-nav me-auto">
+            <li class="nav-item">
+            <a class="nav-link active" href="../index.html">Blog
+                <span class="visually-hidden">(current)</span>
+            </a>
+            </li>
+            <li class="nav-item">
+            <a class="nav-link" href="https://github.com/steplee">GitHub</a>
+            </li>
+
+            <!-- This is not working -->
+            <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" data-bs-toggle="dropdown" href="#" role="button" aria-haspopup="true" aria-expanded="false" id="dropdownMenuButton1" data-toggle="dropdown1">Links</a>
+            <div class="dropdown-menu" aria-labelledby="dropdownMenuButton1" id="dropdown1">
+                <a class="dropdown-item" href="https://www.shadertoy.com/user/stephenl7797">ShaderToy</a>
+                <a class="dropdown-item" href="https://www.shadertoy.com/user/stephenl7797">ShaderToy</a>
+            </div>
+            </li>
+
+        </ul>
+        </div>
+    </div>
+    </nav>
+
+
+    <div id="mainImage"></div>
+
+    <div class="container">
+        <br>
+<h1>Futex vs pthread_condvar</h1><br>
+<p>I was looking into building a small library for sharing data between multiple processes. I want it to support different channels that store the previous published message, while also allowing consumers to wait on a set of channels and wake up when new data is available on any of them.</p><br>
+<p>I also wanted the library to be "brokerless", meaning that there is no special process that is copying and forwarding data around. Each producer directly writes to the visible memory and locking the channel, then notifies the consumers. Locking the channels is key to prevent data races. Each consumer must also lock the channel while it's reading from it. But if a reader-writer style of lock is used, we can have multiple readers at once.</p><br>
+<p>An earlier version of this library operated only in one proccess and I was able to use C++'s one <span class="ticked">std::shared_mutex</span> per channel for locking and one <span class="ticked">eventfd</span> per channel for signalling events. Then consumers could <span class="ticked">epoll</span> on any number of the channels.</p><p>But with a multiprocess approach, <span class="ticked">eventfd</span> cannot be used. My understanding is that, on Linux, <span class="ticked">std::shared_mutex</span> is implemented using <span class="ticked">pthread_rwlock_t</span>, but that it's UB to try to use the C++ std wrapper on a raw memory region from a shared memory segment. So I wrote my own wrapper around the pthread type.</p><br>
+<p>One idea to replace the <span class="ticked">eventfd</span>+<span class="ticked">epoll</span> event system for multiple processes would be to have a condition variable ("cv") per consumer. But this requires each channel managing a list of consumers, and a lot of locking on the consumer side.</p><br>
+<p>Another idea would be to have one condition variable ("cv") for all of the channels combined, and having the condition check fail if a channel we are not subscribed to is notified. But this means that every publish of any message wakes every consumer thread, only for most of them to immediately</p><p>go back to sleep when the condition check fails. Note that an approach with multiple condition variables cannot be used because only one can be waited upon.</p><br>
+<p>A similar setup can be achieved with a <span class="ticked">futex</span>. The futex wait/wake operations can achieve something similar to a condition variable. The futex wake operation can provide a 32-bit mask to which a waiter will only be notified if it's specifid bit mask intersects the signalled one.</p><p>So far this is exactly like the global condiiton variable approach. But the wording of the <span class="ticked">futex(2)</span> man page made it seem that there is one important difference: the futex mask is checked by the *waker*, rather than in a condition variable where *all waiters must be woken* and each checks its condition.</p><br>
+<p>So using futex will wake only the threads that should be. All of these woken threads are the ones we need, and none more. But using the global condition variable all threads are woken, and potentially many go right back to sleep. <span class="ticked">pthread_cond_broadcast</span> checks the condition on the waker thread, so all waiter threads must wakeup to test the condition.</p><br>
+<p>At least that was what the wording of the man page seemed to suggest. To verify this is how it worked, I needed to look at the kernel code, then run some benchmarks to make sure the logic worked in practice and futex would be faster.</p><br>
+<br>
+<h2>Futex Source Code</h2><br>
+<p>Most of the relevant code is in <a href="https://elixir.bootlin.com/linux/v6.7-rc8/source/kernel/futex/waitwake.c">/kernel/futex/waitwake.c</a> and <a href="https://elixir.bootlin.com/linux/v6.7-rc8/source/kernel/futex/core.c">core.c</a>.</p><br>
+<p>Let's start with the waiter. <a href="https://elixir.bootlin.com/linux/v6.7-rc8/source/kernel/futex/waitwake.c#L646">__futex_wait</a> calls <a href="https://elixir.bootlin.com/linux/v6.7-rc8/source/kernel/futex/waitwake.c#L342">futex_wait_queue</a>, which puts the current task state as <span class="ticked">TASK_INTERRUPTIBLE</span> (i.e. to be considered sleeping/waiting), before calling <span class="ticked">schedule</span>, which itself calls <a href="https://elixir.bootlin.com/linux/v6.7-rc8/source/kernel/sched/core.c#L6568">__schedule</a>, which will possibly context switch to a different task. It also appends this waiter's "queue" to a bucket depending on the <span class="ticked">uaddr</span> hash. The queue is used to refer to this task and wake it up with the waker. It looks like <a href="https://elixir.bootlin.com/linux/v6.7-rc8/source/kernel/sched/core.c#L6759">__schedule_loop</a> does not return until the task has been woken due to a reschedule, which in this case must occur after the timeout (I don't use this) or the signal from the waker.</p><br>
+<p>On the waker side, futex being called with <span class="ticked">FUTEX_WAIT</span> leads to <a href="https://elixir.bootlin.com/linux/v6.7-rc8/source/kernel/futex/waitwake.c#L154">futex_wait</a>. This function checks all <span class="ticked">futex_q</span>s in the hash bucket mapped from the <span class="ticked">uaddr</span>. It loops over the queues and finds all matching queues based on the futex key. Then <a href="https://elixir.bootlin.com/linux/v6.7-rc8/source/kernel/futex/waitwake.c#L188">on line 188</a> we can see the bit-mask check. The function calls the <span class="ticked">futex_q->wait</span> function pointer to signal to the waiter futex_q to wakeup. Now I'm lost on exactly how this signalling works, and how the scheduler knows to reschedule the waiting tasks. I can't trace back where the function pointer is set, but at this point my curiosity is satisfied.</p><br>
+<br>
+<h2>pthread Cond Var Source Code</h2><br>
+<p>The <a href="https://github.com/bminor/glibc/blob/b86cb494f9a27a106c96c025c6d834334d85b80a/nptl/pthread_cond_wait.c#L192">pthread_cond_wait</a> function is pretty complicated. It seems to be built on futexes, but includes several other steps.</p><br>
+<p>Only having used the C++ <span class="ticked">std::condition_variable</span> API, whose "wait" method includes the performing a "condition" check based on a user defined predicate function, I was surprised the pthread API does not. It does suggest doing it manually, however:</p><p>> When using condition variables there is always a boolean predicate involving shared variables associated with each condition wait that is true if the thread should proceed. Spurious wakeups from the pthread_cond_wait() or pthread_cond_timedwait() functions may occur. Since the return from pthread_cond_wait() or pthread_cond_timedwait() does not imply anything about the value of this predicate, the predicate should be re-evaluated upon such return.</p><br>
+<p>From this it's clear: all waiting threads are woken and check the condition after waking up. That makes me wonder if it would be a good idea for a kernel API that allows doing the checks on the waker side.</p><br>
+<br>
+<h2>Benchmarks</h2><br>
+<p><a href="">I created a benchmark comparing the two approaches</a>. It does not use the pthread condvar in exactly the typical way, but it's pretty close. Instead of checking the condition while the mutex is held, I use a check of an atomic counter after the mutex is released. This makes the benchmark more similar for the two approaches.</p><br>
+<p>The benchmark creates 8 <span class="ticked">Channel</span>s, 8 <span class="ticked">Writer</span>s, and 32 <span class="ticked">Readers</span>. Each reader waits for events on four channels depending, plus all readers wait on channel 1, to simulate a very busy channel. Each writer writes to the one channel associated with it.</p><br>
+<p>Messages are pushed for 10 seconds and the number of reads are counted. This is repeated several times, but the results are pretty similar. Results from one run follow:</p><br>
+<pre class="code">-------------------------------------------------------
+ - pthread condvar test
+ - Avg Read Latency:  57.4us,   10228 writes  172943 reads
+ - Context switches (v 452398) (iv 11619)
+
+-------------------------------------------------------
+ - futex condvar test
+ - Avg Read Latency:  25.7us,   10400 writes  175418 reads
+ - Context switches (v 177688) (iv 119)
+</pre><br>
+<p>The condition variable approach has more latency and marginally less reads. But it also has 3 times as many context switches, meaning it'll bog the system down much more. This is what I expected given the difference explained above. A global condition variable will require waking all threads when it's notified, whereas the futex mask is checked on the waker side. The number of context switches is only slightly more than the number of reads!</p><br>
+<p>Pushing less total messages did cause the latencies to come closer, but the number of context switches was always much more for the condition variable approach. I don't analyze the overhead of publishing a message, but for my usecases of under a dozen or so waiters, the futex wait operation requiring traversing all waiters is neglible.</p>
+    </div>
+
+</body>
+</html>

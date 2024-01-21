@@ -710,7 +710,12 @@ fn lower_doc_to_html(tokens: &Vec<Tok>, sh: Option<&SyntaxHighlighter>, top: boo
             Ticked(s) => html += &format!("<span class=\"ticked\">{}</span>", s),
             TripleTicked(lang,code) => {
                 if sh.is_some() {
-                    html += &format!("<div class=\"code\">{}</div>", sh.unwrap().colorize(code,lang))
+                    match sh.unwrap().colorize(code,lang) {
+                        // Some(colorizedCode) => html += &format!("<div class=\"code\"><pre>{}</pre></div>", colorizedCode),
+                        // None => html += &format!("<div class=\"code\"><pre>{}</pre></div>", code)
+                        Some(colorizedCode) => html += &format!("{}", colorizedCode),
+                        None => html += &format!("<pre class=\"code\">{}</pre>", code)
+                    }
                 } else {
                     html += &format!("<div class=\"code\">{}</div>", code)
                 }

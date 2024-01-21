@@ -32,8 +32,9 @@
 }
 .code {
     margin: 10px;
+    margin-left: 40px;
     #background-color: #222;
-    background-color: rgba(10, 4, 90, 0.1);
+    background-color: rgba(30, 30, 50, 0.4);
     #filter: brightness(170%);
     #backdrop-filter: brightness(170%);
 }

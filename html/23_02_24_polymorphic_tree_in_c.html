@@ -49,7 +49,7 @@
     <div class="container">
         <br>
 <h1>Polymorphic Tree in C</h1><p>I was reading some kernel code today to try and see how <a href="https://github.com/iovisor/bcc">BCC</a> works with USDTs/uprobes and the ftrace/perf kernel subsystems.</p><br>
-<p>I came across an interesting idiom in C for having allowing a balanced binary tree implementation to be used with different types.</p><p><span class="ticked">uprobes.c</span> contains the following line <span class="ticked">struct uprobe *u = rb_entry(n, struct uprobe, rb_node);</span>, which expands to <span class="ticked">struct uprobe *u = container_of(n, struct uprobe, rb_node);</span></p><p>This <span class="ticked">container_of</span> macro is defined in <span class="ticked">include/linux/kernel.h</span>, and so is probably widely used. It's defined as</p><div class="code"><div class="code"><span class="c_co">/**<br>
+<p>I came across an interesting idiom in C for having allowing a balanced binary tree implementation to be used with different types.</p><p><span class="ticked">uprobes.c</span> contains the following line <span class="ticked">struct uprobe *u = rb_entry(n, struct uprobe, rb_node);</span>, which expands to <span class="ticked">struct uprobe *u = container_of(n, struct uprobe, rb_node);</span></p><p>This <span class="ticked">container_of</span> macro is defined in <span class="ticked">include/linux/kernel.h</span>, and so is probably widely used. It's defined as</p><pre class="code"><span class="c_co">/**<br>
 &nbsp; * container_of - cast a member of a structure out to the containing structure<br>
 &nbsp; * @ptr:	the pointer to the member.<br>
 &nbsp; * @type:	the type of the container struct this is embedded in.<br>
@@ -59,7 +59,7 @@
 #define <span class="c_vr">container_of</span>(<span class="c_vr">ptr</span><span class="c_op">,</span> <span class="c_vr">type</span><span class="c_op">,</span> <span class="c_vr">member</span>) ({			\<br>
 &emsp;	const typeof(((type *)0)->member) * __mptr = (ptr);	\<br>
 &emsp;	(type *)((char *)__mptr - offsetof(type, member)); })<br>
-</div></div><br>
+</pre><br>
 <p>This takes a minute to parse, but it is just finding the pointer of a struct from a certain member of the struct.</p><p>So for example the uprobe struct has a member <span class="ticked">rb_node</span>, and the above <span class="ticked">rb_entry</span> macro finds the pointer to the base struct <span class="ticked">uprobe</span> given a pointer to the inner <span class="ticked">rb_node</span>.</p><br>
 <p>This is kind of the reverse to how you'd normally do it in an object-oriented container based way.</p><p>In languages with generics you'd have a parameterized class, where the tree nodes contain pointers to your custom type.</p><p>In this approach, your custom type has a pointer to the tree node.</p>
     </div>

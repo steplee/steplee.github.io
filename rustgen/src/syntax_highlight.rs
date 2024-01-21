@@ -96,8 +96,9 @@ impl SyntaxHighlighter {
 }
 .code {
     margin: 10px;
+    margin-left: 40px;
     #background-color: #222;
-    background-color: rgba(10, 4, 90, 0.1);
+    background-color: rgba(30, 30, 50, 0.4);
     #filter: brightness(170%);
     #backdrop-filter: brightness(170%);
 }
@@ -201,7 +202,7 @@ impl SyntaxHighlighter {
         return None;
     }
 
-    pub fn colorize(&self, code: &str, lang: &str) -> String {
+    pub fn colorize(&self, code: &str, lang: &str) -> Option<String> {
 
         let src = code.as_bytes();
 
@@ -209,11 +210,17 @@ impl SyntaxHighlighter {
 
         let lang_lower = lang.to_lowercase();
         let ts_lang = match lang_lower.as_str() {
-            "cpp" | "c++" => tree_sitter_cpp::language(),
-            "c" => tree_sitter_c::language(),
-            _ => panic!("unknown language {}", lang)
+            "cpp" | "c++" => Some(tree_sitter_cpp::language()),
+            "c" => Some(tree_sitter_c::language()),
+            // _ => panic!("unknown language {}", lang)
+            _ => None
         };
-        parser.set_language(ts_lang).expect(&format!("Error loading grammar for lang '{}'", lang));
+
+        if ts_lang.is_none() {
+            return None
+        }
+
+        parser.set_language(ts_lang.unwrap()).expect(&format!("Error loading grammar for lang '{}'", lang));
 
         let parsed = parser.parse(code, None);
 
@@ -302,9 +309,9 @@ impl SyntaxHighlighter {
 
         // out = out.replace("\n", "<br>\n");
         // let html = format!("<html><head><style>{}</style></head></body>\n{}\n</body></html>", self.shared_stylesheet, out);
-        let html = format!("<div class=\"code\">{}</div>", out);
+        let html = format!("<pre class=\"code\">{}</pre>", out);
 
-        return html;
+        return Some(html);
     }
 
 }
