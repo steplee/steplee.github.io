@@ -1,5 +1,5 @@
 ```meta
-title: The Best Function I've Ever Written
+title: A Concise Pytorch Function
 date: 2025/07/21
 tags: programming, python, pytorch
 ```
