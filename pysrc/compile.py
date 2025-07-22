@@ -137,7 +137,10 @@ def parseMarkdownToHtml(title, lines):
                             i += 1
                             break
                         else: code += '\n' + line
-                    fcode = formatCode(code,language)
+                    if language != 'meta':
+                        fcode = formatCode(code,language)
+                    else:
+                        fcode = code
                     fcode = fcode.replace('\n\n','\n')
                     D.div(dominate.util.raw(fcode), _class='code')
 

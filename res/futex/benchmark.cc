@@ -290,14 +290,14 @@ namespace {
 			domain.cv.initialize();
 
 			// Make _all_ readers listen to channel 1
-			for (int i=0; i<Readers; i++) readers[i] = new Reader{domain, i, 1
+			for (uint32_t i=0; i<Readers; i++) readers[i] = new Reader{domain, i, 1u
 				| (1<<(i/(Readers/Writers)))
 				| (1<<(i/(Readers/Writers)+1))
 				| (1<<(i/(Readers/Writers)+2))
 				| (1<<(i/(Readers/Writers)+3))
 			};
 			// for (int i=0; i<Readers; i++) readers[i] = new Reader{domain, i, (1<<(i/(Readers/Writers))) | (1<<(i/(Readers/Writers)+1))};
-			for (int i=0; i<Writers; i++) writers[i] = new Writer{domain, i};
+			for (uint32_t i=0; i<Writers; i++) writers[i] = new Writer{domain, i};
 
 			sleep(5);
 
